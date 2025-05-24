@@ -349,7 +349,7 @@ fi
 
 rm -f "$DISK_PATH/test.fio" "$DISK_PATH/test.dd" 2>/dev/null
 
-echo "All benchmarks completed. Results are saved in:" | tee -a /tmp/results.txt
-echo "/tmp/results.txt" | tee -a /tmp/results.txt
+echo "All benchmarks completed." | tee -a /tmp/results.txt
+echo "Use cat /tmp/results.txt to view the results."
 
 exit 0
