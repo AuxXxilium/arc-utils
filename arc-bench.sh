@@ -251,37 +251,41 @@ function launch_geekbench {
 
 echo "Welcome to the Arc Benchmarking Script" | tee /tmp/results.txt
 echo "This script will benchmark your storage device using FIO, DD, and Geekbench." | tee -a /tmp/results.txt
+echo "Use at your own risk." | tee -a /tmp/results.txt
 
-read -p "Enter device path for benchmark [default: /volume1]: " DEVICE
+echo -n "Enter device path for benchmark [default: /volume1]: "
+read DEVICE
 DEVICE=${DEVICE:-/volume1}
 
-read -p "Enter test file size (e.g., 1G) [default: 1G]: " SIZE
+echo -n "Enter test file size (e.g., 1G) [default: 1G]: "
+read SIZE
 SIZE=${SIZE:-1G}
 
-read -p "Enter Geekbench version to run (4, 5, or 6) [default: 6]: " GEEKBENCH_VERSION
+echo -n "Enter Geekbench version to run (4, 5, or 6) [default: 6]: "
+read GEEKBENCH_VERSION
 GEEKBENCH_VERSION=${GEEKBENCH_VERSION:-6}
 
 DISK_PATH="$DEVICE"
 FIO_SIZE="$SIZE"
 
 # System Information
-CPU=$(lscpu | grep "Model name" | awk -F: '{print $2}' | xargs)
+CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | xargs)
+CORES=$(grep -c "model name" /proc/cpuinfo)
 RAM=$(free -h | grep "Mem:" | awk '{print $2}')
 ARC=$(grep "LOADERVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
 [ -z "$ARC" ] && ARC="Unknown"
 KERNEL=$(uname -r)
 
-# Output system info to results.txt
 {
     echo "System Information:"
-    echo "  CPU:    $CPU"
-    echo "  RAM:    $RAM"
-    echo "  Loader: $ARC"
-    echo "  Kernel: $KERNEL"
+    echo "  CPU:    	$CPU"
+	echo "  Threads:  	$CORES"
+    echo "  RAM:    	$RAM"
+    echo "  Loader: 	$ARC"
+    echo "  Kernel: 	$KERNEL"
     echo ""
 } | tee -a /tmp/results.txt
 
-# Example: Run disk_test and log output
 echo "Starting FIO..." | tee -a /tmp/results.txt
 disk_test 4k 64k 1M 2M 
 
