@@ -4,5 +4,8 @@
 
 ### Arc Benchmark
 ```
-curl -sL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/arc-bench.sh | bash
+This needs to run as 'root' (Usage at own risk):
+
+Command: curl -sL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH
+Example: curl -sL https://bench.auxxxilium.tech | bash -s /volume1 1G 6
 ```

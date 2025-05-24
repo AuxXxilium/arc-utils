@@ -252,21 +252,31 @@ function launch_geekbench {
 echo "Welcome to the Arc Benchmarking Script" | tee /tmp/results.txt
 echo "This script will benchmark your storage device using FIO, DD, and Geekbench." | tee -a /tmp/results.txt
 echo "Use at your own risk." | tee -a /tmp/results.txt
+echo "" | tee -a /tmp/results.txt
 
-echo -n "Enter device path for benchmark [default: /volume1]: "
-read DEVICE
-DEVICE=${DEVICE:-/volume1}
+DEVICE="${1:-/volume1}"
+SIZE="${2:-1G}"
+GEEKBENCH_VERSION="${3:-6}"
 
-echo -n "Enter test file size (e.g., 1G) [default: 1G]: "
-read SIZE
-SIZE=${SIZE:-1G}
+if [[ -t 0 ]]; then
+    echo -n "Enter device path for benchmark [default: $DEVICE]: "
+    read input && DEVICE="${input:-$DEVICE}"
 
-echo -n "Enter Geekbench version to run (4, 5, or 6) [default: 6]: "
-read GEEKBENCH_VERSION
-GEEKBENCH_VERSION=${GEEKBENCH_VERSION:-6}
+    echo -n "Enter test file size (e.g., 1G) [default: $SIZE]: "
+    read input && SIZE="${input:-$SIZE}"
+
+    echo -n "Enter Geekbench version to run (4, 5, or 6) [default: $GEEKBENCH_VERSION]: "
+    read input && GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
+else
+    echo "Using execution parameters:"
+    echo "  Device: $DEVICE"
+    echo "  Size: $SIZE"
+    echo "  Geekbench version: $GEEKBENCH_VERSION"
+fi
 
 DISK_PATH="$DEVICE"
 FIO_SIZE="$SIZE"
+echo ""
 
 # System Information
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | xargs)
