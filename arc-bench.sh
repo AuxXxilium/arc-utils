@@ -297,6 +297,7 @@ KERNEL=$(uname -r)
 } | tee -a /tmp/results.txt
 
 echo "Starting FIO..." | tee -a /tmp/results.txt
+sleep 5
 disk_test 4k 64k 1M 2M 
 
 echo "Disk FIO Results:" | tee -a /tmp/results.txt
@@ -329,6 +330,7 @@ done
 echo "" | tee -a /tmp/results.txt
 
 echo "Starting DD..." | tee -a /tmp/results.txt
+sleep 5
 dd_test
 
 echo "DD Test Results:" | tee -a /tmp/results.txt
@@ -337,6 +339,7 @@ echo "  Read Avg:  $DISK_READ_TEST_AVG MB/s" | tee -a /tmp/results.txt
 echo "" | tee -a /tmp/results.txt
 
 echo "Starting Geekbench..." | tee -a /tmp/results.txt
+sleep 5
 launch_geekbench $GEEKBENCH_VERSION
 echo "Geekbench $GEEKBENCH_VERSION Results:" | tee -a /tmp/results.txt
 if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
