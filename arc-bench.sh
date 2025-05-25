@@ -265,7 +265,7 @@ if [[ -t 0 ]]; then
     echo -n "Enter test file size (e.g., 1G) [default: $SIZE]: "
     read input && SIZE="${input:-$SIZE}"
 
-    echo -n "Enter Geekbench version to run (4, 5, or 6) [default: $GEEKBENCH_VERSION]: "
+    echo -n "Enter Geekbench version to run (4, 5, 6 or s) [default: $GEEKBENCH_VERSION]: "
     read input && GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
 else
     echo "Using execution parameters:"
@@ -340,14 +340,25 @@ echo "" | tee -a /tmp/results.txt
 
 echo "Starting Geekbench..." | tee -a /tmp/results.txt
 sleep 5
-launch_geekbench $GEEKBENCH_VERSION
-echo "Geekbench $GEEKBENCH_VERSION Results:" | tee -a /tmp/results.txt
-if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
-	echo "  Single Core: $GEEKBENCH_SCORES_SINGLE" | tee -a /tmp/results.txt
-	echo "  Multi Core:  $GEEKBENCH_SCORES_MULTI" | tee -a /tmp/results.txt
-	echo "  Full Test URL: $GEEKBENCH_URL" | tee -a /tmp/results.txt
+if [[ $GEEKBENCH_VERSION == *s* ]]; then
+	echo "Skipping Geekbench test as requested." | tee -a /tmp/results.txt
+	GEEKBENCH_SCORES_SINGLE=""
+	GEEKBENCH_SCORES_MULTI=""
+	GEEKBENCH_URL=""
 else
-	echo "Geekbench test failed or not run." | tee -a /tmp/results.txt
+	if [[ $GEEKBENCH_VERSION != *4* && $GEEKBENCH_VERSION != *5* && $GEEKBENCH_VERSION != *6* ]]; then
+		echo "Invalid Geekbench version specified. Please use 4, 5, or 6." | tee -a /tmp/results.txt
+	else
+		launch_geekbench $GEEKBENCH_VERSION
+		echo "Geekbench $GEEKBENCH_VERSION Results:" | tee -a /tmp/results.txt
+		if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
+			echo "  Single Core: $GEEKBENCH_SCORES_SINGLE" | tee -a /tmp/results.txt
+			echo "  Multi Core:  $GEEKBENCH_SCORES_MULTI" | tee -a /tmp/results.txt
+			echo "  Full Test URL: $GEEKBENCH_URL" | tee -a /tmp/results.txt
+		else
+			echo "Geekbench test failed or not run." | tee -a /tmp/results.txt
+		fi
+	fi
 fi
 
 rm -f "$DISK_PATH/test.fio" "$DISK_PATH/test.dd" 2>/dev/null
