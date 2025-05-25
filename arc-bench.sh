@@ -111,43 +111,6 @@ function disk_test {
 	done
 }
 
-# dd_test
-# Purpose: This method is invoked if the fio disk test failed. dd sequential speed tests are
-#          not indiciative or real-world results, however, some form of disk speed measure 
-#          is better than nothing.
-# Parameters:
-#          - (none)
-function dd_test {
-	I=0
-	DISK_WRITE_TEST_RES=()
-	DISK_READ_TEST_RES=()
-	DISK_WRITE_TEST_AVG=0
-	DISK_READ_TEST_AVG=0
-
-	# run the disk speed tests (write and read) thrice over
-	while [ $I -lt 3 ]
-	do
-		# write test using dd, "direct" flag is used to test direct I/O for data being stored to disk
-		DISK_WRITE_TEST=$(dd if=/dev/zero of="$DISK_PATH/test.dd" bs=64k count=16k oflag=direct |& grep copied | awk '{ print $(NF-1) " " $(NF)}')
-		VAL=$(echo "$DISK_WRITE_TEST" | cut -d " " -f 1)
-		[[ "$DISK_WRITE_TEST" == *"GB"* ]] && VAL=$(awk -v a="$VAL" 'BEGIN { print a * 1000 }')
-		DISK_WRITE_TEST_RES+=( "$DISK_WRITE_TEST" )
-		DISK_WRITE_TEST_AVG=$(awk -v a="$DISK_WRITE_TEST_AVG" -v b="$VAL" 'BEGIN { print a + b }')
-
-		# read test using dd using the 1G file written during the write test
-		DISK_READ_TEST=$(dd if="$DISK_PATH/test.dd" of=/dev/null bs=8k |& grep copied | awk '{ print $(NF-1) " " $(NF)}')
-		VAL=$(echo "$DISK_READ_TEST" | cut -d " " -f 1)
-		[[ "$DISK_READ_TEST" == *"GB"* ]] && VAL=$(awk -v a="$VAL" 'BEGIN { print a * 1000 }')
-		DISK_READ_TEST_RES+=( "$DISK_READ_TEST" )
-		DISK_READ_TEST_AVG=$(awk -v a="$DISK_READ_TEST_AVG" -v b="$VAL" 'BEGIN { print a + b }')
-
-		I=$(( I + 1 ))
-	done
-	# calculate the write and read speed averages using the results from the three runs
-	DISK_WRITE_TEST_AVG=$(awk -v a="$DISK_WRITE_TEST_AVG" 'BEGIN { print a / 3 }')
-	DISK_READ_TEST_AVG=$(awk -v a="$DISK_READ_TEST_AVG" 'BEGIN { print a / 3 }')
-}
-
 # launch_geekbench
 # Purpose: This method is designed to run the Primate Labs' Geekbench 4/5 Cross-Platform Benchmark utility
 # Parameters:
@@ -250,7 +213,7 @@ function launch_geekbench {
 }
 
 echo "Welcome to the Arc Benchmarking Script" | tee /tmp/results.txt
-echo "This script will benchmark your storage device using FIO, DD, and Geekbench." | tee -a /tmp/results.txt
+echo "This script will benchmark your storage device using FIO and Geekbench." | tee -a /tmp/results.txt
 echo "Use at your own risk." | tee -a /tmp/results.txt
 echo "" | tee -a /tmp/results.txt
 
@@ -327,15 +290,6 @@ for ((i=0; i<${#DISK_RESULTS_RAW[@]}; i+=6)); do
         echo "  Write IOPS:  $FORMATTED_WRITE_IOPS"
     } | tee -a /tmp/results.txt
 done
-echo "" | tee -a /tmp/results.txt
-
-echo "Starting DD..." | tee -a /tmp/results.txt
-sleep 5
-dd_test
-
-echo "DD Test Results:" | tee -a /tmp/results.txt
-echo "  Write Avg: $DISK_WRITE_TEST_AVG MB/s" | tee -a /tmp/results.txt
-echo "  Read Avg:  $DISK_READ_TEST_AVG MB/s" | tee -a /tmp/results.txt
 echo "" | tee -a /tmp/results.txt
 
 echo "Starting Geekbench..." | tee -a /tmp/results.txt
