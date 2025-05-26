@@ -9,3 +9,10 @@ This needs to run as 'root' (Usage at own risk):
 Command: curl -sL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH
 Example: curl -sL https://bench.auxxxilium.tech | bash -s /volume1 1G 6
 ```
+
+### ABB activation
+```
+This needs to run as 'root' (Usage at own risk):
+
+Command: curl -sL https://abb.auxxxilium.tech | bash
+```
