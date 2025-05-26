@@ -3,16 +3,22 @@
 # These are Utilities for usage with Arc Loader
 
 ### Arc Benchmark
-```
+
 This needs to run as 'root' (Usage at own risk):
 
-Command: curl -sL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH
-Example: curl -sL https://bench.auxxxilium.tech | bash -s /volume1 1G 6
+```
+curl -sL https://bench.auxxxilium.tech | bash -s /volume1 1G 6
+```
+
+Custom Values:
+```
+curl -sL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH_VERSION
 ```
 
 ### ABB activation
-```
+
 This needs to run as 'root' (Usage at own risk):
 
-Command: curl -sL https://abb.auxxxilium.tech | bash
+```
+curl -sL https://abb.auxxxilium.tech | bash
 ```
