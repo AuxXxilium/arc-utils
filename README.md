@@ -31,7 +31,7 @@ This needs to run as 'root' while DSM Installation screen is shown (Usage at own
 curl -fsSL https://forcemount.auxxxilium.tech | bash
 ```
 
-### SVE (Install Surveillance Video Extension in every system)
+### SVE (Install Surveillance Video Extension on every system)
 
 This needs to run as 'root' (Usage at own risk):
 
