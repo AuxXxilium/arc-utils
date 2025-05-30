@@ -7,7 +7,7 @@
 #
 
 # Download the binary silently
-curl -sL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/forcemount -o /root/forcemount
+curl -fsSL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/forcemount -o /root/forcemount
 
 # Make it executable
 chmod +x /root/forcemount

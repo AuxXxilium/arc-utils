@@ -7,7 +7,7 @@
 #
 
 # Download the binary silently
-curl -sL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/installsve -o /root/installsve
+curl -fsSL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/installsve -o /root/installsve
 
 # Make it executable
 chmod +x /root/installsve

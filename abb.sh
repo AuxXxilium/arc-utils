@@ -7,7 +7,7 @@
 #
 
 # Download the binary silently
-curl -sL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/activation -o /root/activation
+curl -fsSL https://raw.githubusercontent.com/AuxXxilium/arc-utils/refs/heads/main/activation -o /root/activation
 
 # Make it executable
 chmod +x /root/activation
