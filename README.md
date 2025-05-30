@@ -2,6 +2,12 @@
 
 # These are Utilities for usage with Arc Loader
 
+### Root login to DSM
+
+```
+sudo -i
+```
+
 ### Arc Benchmark
 
 This needs to run as 'root' (Usage at own risk):
