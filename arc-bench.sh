@@ -6,14 +6,12 @@
 # See /LICENSE for more information.
 #
 
+VERSION="1.0"
+
 # format_speed
 # Purpose: This method is a convenience function to format the output of the fio disk tests which
 #          always returns a result in KB/s. If result is >= 1 GB/s, use GB/s. If result is < 1 GB/s
 #          and >= 1 MB/s, then use MB/s. Otherwise, use KB/s.
-# Parameters:
-#          1. RAW - the raw disk speed result (in KB/s)
-# Returns:
-#          Formatted disk speed in GB/s, MB/s, or KB/s
 function format_speed {
 	RAW=$1 # disk speed in KB/s
 	RESULT=$RAW
@@ -46,11 +44,7 @@ function format_speed {
 }
 
 # format_iops
-# Purpose: This method is a convenience function to format the output of the raw IOPS result
-# Parameters:
-#          1. RAW - the raw IOPS result
-# Returns:
-#          Formatted IOPS (i.e. 8, 123, 1.7k, 275.9k, etc.)
+# Purpose: This method is a convenience function to format the output of the raw IOPS results from the fio disk tests.
 function format_iops {
 	RAW=$1 # iops
 	RESULT=$RAW
@@ -76,45 +70,51 @@ function format_iops {
 # disk_test
 # Purpose: This method is designed to test the disk performance of the host using the partition that the
 #          script is being run from using fio random read/write speed tests.
-# Parameters:
-#          - (none)
+DISK_RESULTS_RAW=()
+
 function disk_test {
-	# run a quick test to generate the fio test file to be used by the actual tests
-	echo -en "Generating fio test file..."
-	fio --name=setup --ioengine=libaio --rw=read --bs=64k --iodepth=64 --numjobs=2 --size=$FIO_SIZE --runtime=1 --gtod_reduce=1 --filename="$DISK_PATH/test.fio" --direct=1 --minimal &> /dev/null
+    # run a quick test to generate the fio test file to be used by the actual tests
+    echo -en "Generating fio test file..."
+    fio --name=setup --ioengine=libaio --rw=read --bs=64k --iodepth=64 --numjobs=2 --size=$FIO_SIZE --runtime=1 --gtod_reduce=1 --filename="$DISK_PATH/test.fio" --direct=1 --minimal &> /dev/null
+    echo -en "\r\033[0K"
+
+    # get array of block sizes to evaluate
+    BLOCK_SIZES=("$@")
+
+    for BS in "${BLOCK_SIZES[@]}"; do
+        # --- Mixed R+W ---
+        echo -en "\rRunning fio random mixed R+W disk test with $BS block size..."
+        DISK_TEST=$(timeout 35 fio --name=rand_rw_"$BS" --ioengine=libaio --rw=randrw --rwmixread=50 --bs="$BS" --iodepth=64 --numjobs=2 --size="$FIO_SIZE" --runtime=30 --gtod_reduce=1 --direct=1 --filename="$DISK_PATH/test.fio" --group_reporting --minimal 2> /dev/null | grep rand_rw_"$BS")
+        if [[ -z "$DISK_TEST" ]]; then
+            echo "FIO mixed R+W test failed for $BS block size." | tee -a /tmp/results.txt
+            DISK_RESULTS_RAW+=( "" "" "" "" "" "" )
+        else
+            DISK_IOPS_R=$(echo "$DISK_TEST" | awk -F';' '{print $8}')
+            DISK_IOPS_W=$(echo "$DISK_TEST" | awk -F';' '{print $49}')
+            DISK_IOPS=$(awk -v a="$DISK_IOPS_R" -v b="$DISK_IOPS_W" 'BEGIN { print a + b }')
+            DISK_TEST_R=$(echo "$DISK_TEST" | awk -F';' '{print $7}')
+            DISK_TEST_W=$(echo "$DISK_TEST" | awk -F';' '{print $48}')
+            DISK_TEST_SUM=$(awk -v a="$DISK_TEST_R" -v b="$DISK_TEST_W" 'BEGIN { print a + b }')
+            DISK_RESULTS_RAW+=( "$DISK_TEST_SUM" "$DISK_TEST_R" "$DISK_TEST_W" "$DISK_IOPS" "$DISK_IOPS_R" "$DISK_IOPS_W" )
+        fi
+
+        # --- Read Only ---
+        echo -en "\rRunning fio random read-only disk test with $BS block size..."
+        DISK_TEST_READ=$(timeout 35 fio --name=rand_read_"$BS" --ioengine=libaio --rw=randread --bs="$BS" --iodepth=64 --numjobs=2 --size="$FIO_SIZE" --runtime=30 --gtod_reduce=1 --direct=1 --filename="$DISK_PATH/test.fio" --group_reporting --minimal 2> /dev/null | grep rand_read_"$BS")
+        if [[ -z "$DISK_TEST_READ" ]]; then
+            echo "FIO read-only test failed for $BS block size." | tee -a /tmp/results.txt
+            DISK_RESULTS_RAW+=( "" "" )
+        else
+            DISK_IOPS_READ=$(echo "$DISK_TEST_READ" | awk -F';' '{print $8}')
+            DISK_SPEED_READ=$(echo "$DISK_TEST_READ" | awk -F';' '{print $7}')
+            DISK_RESULTS_RAW+=( "$DISK_SPEED_READ" "$DISK_IOPS_READ" )
+        fi
+    done
 	echo -en "\r\033[0K"
-
-	# get array of block sizes to evaluate
-	BLOCK_SIZES=("$@")
-
-	for BS in "${BLOCK_SIZES[@]}"; do
-		# run rand read/write mixed fio test with block size = $BS
-		echo -en "Running fio random mixed R+W disk test with $BS block size..."
-		DISK_TEST=$(timeout 35 fio --name=rand_rw_"$BS" --ioengine=libaio --rw=randrw --rwmixread=50 --bs="$BS" --iodepth=64 --numjobs=2 --size="$FIO_SIZE" --runtime=30 --gtod_reduce=1 --direct=1 --filename="$DISK_PATH/test.fio" --group_reporting --minimal 2> /dev/null | grep rand_rw_"$BS")
-		DISK_IOPS_R=$(echo "$DISK_TEST" | awk -F';' '{print $8}')
-		DISK_IOPS_W=$(echo "$DISK_TEST" | awk -F';' '{print $49}')
-		DISK_IOPS=$(awk -v a="$DISK_IOPS_R" -v b="$DISK_IOPS_W" 'BEGIN { print a + b }')
-		DISK_TEST_R=$(echo "$DISK_TEST" | awk -F';' '{print $7}')
-		DISK_TEST_W=$(echo "$DISK_TEST" | awk -F';' '{print $48}')
-		DISK_TEST=$(awk -v a="$DISK_TEST_R" -v b="$DISK_TEST_W" 'BEGIN { print a + b }')
-		DISK_RESULTS_RAW+=( "$DISK_TEST" "$DISK_TEST_R" "$DISK_TEST_W" "$DISK_IOPS" "$DISK_IOPS_R" "$DISK_IOPS_W" )
-
-		DISK_IOPS=$(format_iops "$DISK_IOPS")
-		DISK_IOPS_R=$(format_iops "$DISK_IOPS_R")
-		DISK_IOPS_W=$(format_iops "$DISK_IOPS_W")
-		DISK_TEST=$(format_speed "$DISK_TEST")
-		DISK_TEST_R=$(format_speed "$DISK_TEST_R")
-		DISK_TEST_W=$(format_speed "$DISK_TEST_W")
-
-		DISK_RESULTS+=( "$DISK_TEST" "$DISK_TEST_R" "$DISK_TEST_W" "$DISK_IOPS" "$DISK_IOPS_R" "$DISK_IOPS_W" )
-		echo -en "\r\033[0K"
-	done
 }
 
 # launch_geekbench
 # Purpose: This method is designed to run the Primate Labs' Geekbench 4/5 Cross-Platform Benchmark utility
-# Parameters:
-#          1. VERSION - indicates which Geekbench version to run
 function launch_geekbench {
 	VERSION=$1
 
@@ -134,12 +134,12 @@ function launch_geekbench {
 	elif [[ $VERSION == *4* && $ARCH != *aarch64* && $ARCH != *arm* ]]; then # Geekbench v4
 		GB_URL="https://cdn.geekbench.com/Geekbench-4.4.4-Linux.tar.gz"
 		[[ "$ARCH" == *"x86"* ]] && GB_CMD="geekbench_x86_32" || GB_CMD="geekbench4"
-		GB_RUN="True"
+		GB_RUN="true"
 	elif [[ $VERSION == *5* || $VERSION == *6* ]]; then # Geekbench v5/6
 		if [[ $ARCH = *x86* && $GEEKBENCH_4 == *False* ]]; then # don't run Geekbench 5 if on 32-bit arch
 			echo -e "\nGeekbench $VERSION cannot run on 32-bit architectures. Re-run with -4 flag to use"
 			echo -e "Geekbench 4, which can support 32-bit architectures. Skipping Geekbench $VERSION."
-		elif [[ $ARCH = *x86* && $GEEKBENCH_4 == *True* ]]; then
+		elif [[ $ARCH = *x86* && $GEEKBENCH_4 == *true* ]]; then
 			echo -e "\nGeekbench $VERSION cannot run on 32-bit architectures. Skipping test."
 		else
 			if [[ $VERSION == *5* ]]; then # Geekbench v5
@@ -151,11 +151,11 @@ function launch_geekbench {
 					|| GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-Linux.tar.gz"
 				GB_CMD="geekbench6"
 			fi
-			GB_RUN="True"
+			GB_RUN="true"
 		fi
 	fi
 
-	if [[ $GB_RUN == *True* ]]; then # run GB test
+	if [[ $GB_RUN == *true* ]]; then # run GB test
 		echo -en "\nRunning GB$VERSION benchmark test... *cue elevator music*"
 
 		# check for local geekbench installed
@@ -212,7 +212,7 @@ function launch_geekbench {
 	fi
 }
 
-echo "Welcome to the Arc Benchmarking Script" | tee /tmp/results.txt
+echo "Welcome to the Arc Benchmarking Script $VERSION" | tee /tmp/results.txt
 echo "This script will benchmark your storage device using FIO and Geekbench." | tee -a /tmp/results.txt
 echo "Use at your own risk." | tee -a /tmp/results.txt
 echo "" | tee -a /tmp/results.txt
@@ -235,6 +235,7 @@ else
     echo "  Device: $DEVICE"
     echo "  Size: $SIZE"
     echo "  Geekbench version: $GEEKBENCH_VERSION"
+    echo "  Iperf3: $IPERF"
 fi
 
 DISK_PATH="$DEVICE"
@@ -244,7 +245,7 @@ echo ""
 # System Information
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | xargs)
 CORES=$(grep -c "model name" /proc/cpuinfo)
-RAM=$(free -h | grep "Mem:" | awk '{print $2}')
+RAM=$(free -b | grep "Mem:" | awk '{printf "%.1fGB", $2/1024/1024/1024}')
 ARC=$(grep "LOADERVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
 [ -z "$ARC" ] && ARC="Unknown"
 KERNEL=$(uname -r)
@@ -259,47 +260,70 @@ KERNEL=$(uname -r)
     echo ""
 } | tee -a /tmp/results.txt
 
-echo "Starting FIO..." | tee -a /tmp/results.txt
-sleep 5
-disk_test 4k 64k 1M 2M 
+# --- FIO Benchmark ---
+if command -v fio &>/dev/null; then
+	echo "Starting FIO..." | tee -a /tmp/results.txt
+	sleep 5
+	BLOCK_SIZES=(4k 1M 16M)
+	disk_test "${BLOCK_SIZES[@]}"
 
-echo "Disk FIO Results:" | tee -a /tmp/results.txt
-for ((i=0; i<${#DISK_RESULTS_RAW[@]}; i+=6)); do
-    BLOCK_SIZE="${BLOCK_SIZES[$((i/6))]}"
-    RAW_TOTAL_SPEED="${DISK_RESULTS_RAW[$i]}"
-    RAW_READ_SPEED="${DISK_RESULTS_RAW[$((i+1))]}"
-    RAW_WRITE_SPEED="${DISK_RESULTS_RAW[$((i+2))]}"
-    RAW_TOTAL_IOPS="${DISK_RESULTS_RAW[$((i+3))]}"
-    RAW_READ_IOPS="${DISK_RESULTS_RAW[$((i+4))]}"
-    RAW_WRITE_IOPS="${DISK_RESULTS_RAW[$((i+5))]}"
+	echo "" | tee -a /tmp/results.txt
+	echo "Disk FIO Results:" | tee -a /tmp/results.txt
+	INDEX=0
+	for BS in "${BLOCK_SIZES[@]}"; do
+		# Mixed R+W
+		RAW_TOTAL_SPEED="${DISK_RESULTS_RAW[$INDEX]}"
+		RAW_READ_SPEED="${DISK_RESULTS_RAW[$((INDEX+1))]}"
+		RAW_WRITE_SPEED="${DISK_RESULTS_RAW[$((INDEX+2))]}"
+		RAW_TOTAL_IOPS="${DISK_RESULTS_RAW[$((INDEX+3))]}"
+		RAW_READ_IOPS="${DISK_RESULTS_RAW[$((INDEX+4))]}"
+		RAW_WRITE_IOPS="${DISK_RESULTS_RAW[$((INDEX+5))]}"
 
-    FORMATTED_TOTAL_SPEED=$(format_speed "$RAW_TOTAL_SPEED")
-    FORMATTED_READ_SPEED=$(format_speed "$RAW_READ_SPEED")
-    FORMATTED_WRITE_SPEED=$(format_speed "$RAW_WRITE_SPEED")
-    FORMATTED_TOTAL_IOPS=$(format_iops "$RAW_TOTAL_IOPS")
-    FORMATTED_READ_IOPS=$(format_iops "$RAW_READ_IOPS")
-    FORMATTED_WRITE_IOPS=$(format_iops "$RAW_WRITE_IOPS")
+		# Read Only
+		RAW_READONLY_SPEED="${DISK_RESULTS_RAW[$((INDEX+6))]}"
+		RAW_READONLY_IOPS="${DISK_RESULTS_RAW[$((INDEX+7))]}"
 
-    {
-        echo "Block Size: $BLOCK_SIZE"
-        echo "  Total Speed: $FORMATTED_TOTAL_SPEED"
-        echo "  Read Speed:  $FORMATTED_READ_SPEED"
-        echo "  Write Speed: $FORMATTED_WRITE_SPEED"
-        echo "  Total IOPS:  $FORMATTED_TOTAL_IOPS"
-        echo "  Read IOPS:   $FORMATTED_READ_IOPS"
-        echo "  Write IOPS:  $FORMATTED_WRITE_IOPS"
-    } | tee -a /tmp/results.txt
-done
+		FORMATTED_TOTAL_SPEED=$(format_speed "$RAW_TOTAL_SPEED")
+		FORMATTED_READ_SPEED=$(format_speed "$RAW_READ_SPEED")
+		FORMATTED_WRITE_SPEED=$(format_speed "$RAW_WRITE_SPEED")
+		FORMATTED_TOTAL_IOPS=$(format_iops "$RAW_TOTAL_IOPS")
+		FORMATTED_READ_IOPS=$(format_iops "$RAW_READ_IOPS")
+		FORMATTED_WRITE_IOPS=$(format_iops "$RAW_WRITE_IOPS")
+
+		FORMATTED_READONLY_SPEED=$(format_speed "$RAW_READONLY_SPEED")
+		FORMATTED_READONLY_IOPS=$(format_iops "$RAW_READONLY_IOPS")
+
+		{
+			echo "Block Size: $BS"
+			echo "  [Mixed R+W]"
+			echo "    Total Speed: $FORMATTED_TOTAL_SPEED"
+			echo "    Read Speed:  $FORMATTED_READ_SPEED"
+			echo "    Write Speed: $FORMATTED_WRITE_SPEED"
+			echo "    Total IOPS:  $FORMATTED_TOTAL_IOPS"
+			echo "    Read IOPS:   $FORMATTED_READ_IOPS"
+			echo "    Write IOPS:  $FORMATTED_WRITE_IOPS"
+			echo "  [Read Only]"
+			echo "    Read Speed: $FORMATTED_READONLY_SPEED"
+			echo "    Read IOPS:  $FORMATTED_READONLY_IOPS"
+		} | tee -a /tmp/results.txt
+
+		INDEX=$((INDEX+8))
+	done
+    echo "" | tee -a /tmp/results.txt
+else
+    echo "fio not found. Skipping disk benchmark." | tee -a /tmp/results.txt
+fi
 echo "" | tee -a /tmp/results.txt
 
-echo "Starting Geekbench..." | tee -a /tmp/results.txt
-sleep 5
+# --- Geekbench Benchmark ---
 if [[ $GEEKBENCH_VERSION == *s* ]]; then
 	echo "Skipping Geekbench test as requested." | tee -a /tmp/results.txt
 	GEEKBENCH_SCORES_SINGLE=""
 	GEEKBENCH_SCORES_MULTI=""
 	GEEKBENCH_URL=""
 else
+	echo "Starting Geekbench..." | tee -a /tmp/results.txt
+	sleep 5
 	if [[ $GEEKBENCH_VERSION != *4* && $GEEKBENCH_VERSION != *5* && $GEEKBENCH_VERSION != *6* ]]; then
 		echo "Invalid Geekbench version specified. Please use 4, 5, or 6." | tee -a /tmp/results.txt
 	else
