@@ -212,7 +212,7 @@ function launch_geekbench {
 	fi
 }
 
-echo "Welcome to the Arc Benchmarking Script $VERSION" | tee /tmp/results.txt
+echo "Welcome to the Arc Benchmark Script $VERSION" | tee /tmp/results.txt
 echo "This script will benchmark your storage device using FIO and Geekbench." | tee -a /tmp/results.txt
 echo "Use at your own risk." | tee -a /tmp/results.txt
 echo "" | tee -a /tmp/results.txt
@@ -235,7 +235,6 @@ else
     echo "  Device: $DEVICE"
     echo "  Size: $SIZE"
     echo "  Geekbench version: $GEEKBENCH_VERSION"
-    echo "  Iperf3: $IPERF"
 fi
 
 DISK_PATH="$DEVICE"
