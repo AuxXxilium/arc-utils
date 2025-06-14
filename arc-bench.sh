@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.0.1"
+VERSION="1.0.2"
 
 # format_speed
 # Purpose: This method is a convenience function to format the output of the fio disk tests which
@@ -316,7 +316,7 @@ echo "" | tee -a /tmp/results.txt
 
 # --- Geekbench Benchmark ---
 if [[ $GEEKBENCH_VERSION == *s* ]]; then
-	echo "Skipping Geekbench test as requested." | tee -a /tmp/results.txt
+	echo "Skipping Geekbench as requested." | tee -a /tmp/results.txt
 	GEEKBENCH_SCORES_SINGLE=""
 	GEEKBENCH_SCORES_MULTI=""
 	GEEKBENCH_URL=""
@@ -331,9 +331,9 @@ else
 		if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
 			echo "  Single Core: $GEEKBENCH_SCORES_SINGLE" | tee -a /tmp/results.txt
 			echo "  Multi Core:  $GEEKBENCH_SCORES_MULTI" | tee -a /tmp/results.txt
-			echo "  Full Test URL: $GEEKBENCH_URL" | tee -a /tmp/results.txt
+			echo "  Full URL: $GEEKBENCH_URL" | tee -a /tmp/results.txt
 		else
-			echo "Geekbench test failed or not run." | tee -a /tmp/results.txt
+			echo "Geekbench failed or not run." | tee -a /tmp/results.txt
 		fi
 	fi
 fi
@@ -343,21 +343,17 @@ rm -f "$DISK_PATH/test.fio" 2>/dev/null
 echo "All benchmarks completed." | tee -a /tmp/results.txt
 echo "Use cat /tmp/results.txt to view the results."
 
-read -p "Do you want to send the results to Discord Benchmark channel? (yes/no): " send_discord
-if [[ "$send_discord" == "yes" ]]; then
+read -p "Do you want to send the results to Discord Benchmark channel? (y/n): " send_discord
+if [[ "$send_discord" == "y" ]]; then
     webhook_url="https://arc.auxxxilium.tech/bench"
-    # Read the entire file, preserving newlines
-    content="$(cat /tmp/results.txt)"
-    if [[ -z "${content// }" ]]; then
-        echo "No results to send. /tmp/results.txt is empty or only whitespace."
-        exit 1
-    fi
-    json_content=$(jq -nc --arg c "```
-$content
-```" '{content: $c}')
-    echo "Payload being sent to PHP proxy:"
-    echo "$json_content"
-    response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
+	read -p "Enter your username: " username
+	results=$(cat /tmp/results.txt)
+	[ -z "$username" ] && username="Anonymous"
+	# Build the message with two empty lines after the username
+	message="$(echo -e "Benchmark from $username\n\n$results")"
+	# Use jq to encode and wrap as a code block
+	json_content=$(jq -nc --arg c "$message" '{content: "\n\($c)\n"}')
+	response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
     if echo "$response" | grep -q '"status":"sent"'; then
         echo "Results sent to Discord."
     else
