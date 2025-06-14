@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.0"
+VERSION="1.0.1"
 
 # format_speed
 # Purpose: This method is a convenience function to format the output of the fio disk tests which
@@ -338,9 +338,33 @@ else
 	fi
 fi
 
-rm -f "$DISK_PATH/test.fio" "$DISK_PATH/test.dd" 2>/dev/null
+rm -f "$DISK_PATH/test.fio" 2>/dev/null
 
 echo "All benchmarks completed." | tee -a /tmp/results.txt
 echo "Use cat /tmp/results.txt to view the results."
+
+read -p "Do you want to send the results to Discord Benchmark channel? (yes/no): " send_discord
+if [[ "$send_discord" == "yes" ]]; then
+    webhook_url="https://arc.auxxxilium.tech/bench"
+    # Read the entire file, preserving newlines
+    content="$(cat /tmp/results.txt)"
+    if [[ -z "${content// }" ]]; then
+        echo "No results to send. /tmp/results.txt is empty or only whitespace."
+        exit 1
+    fi
+    json_content=$(jq -nc --arg c "```
+$content
+```" '{content: $c}')
+    echo "Payload being sent to PHP proxy:"
+    echo "$json_content"
+    response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
+    if echo "$response" | grep -q '"status":"sent"'; then
+        echo "Results sent to Discord."
+    else
+        echo "Failed to send results to Discord. Response: $response"
+    fi
+else
+    echo "Results not sent."
+fi
 
 exit 0
