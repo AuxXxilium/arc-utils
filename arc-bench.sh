@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.0.2"
+VERSION="1.0.3"
 
 # format_speed
 # Purpose: This method is a convenience function to format the output of the fio disk tests which
@@ -252,7 +252,7 @@ KERNEL=$(uname -r)
 {
     echo "System Information:"
     echo "  CPU:    	$CPU"
-	echo "  Threads:  	$CORES"
+	echo "  Cores:  	$CORES"
     echo "  RAM:    	$RAM"
     echo "  Loader: 	$ARC"
     echo "  Kernel: 	$KERNEL"
@@ -343,24 +343,28 @@ rm -f "$DISK_PATH/test.fio" 2>/dev/null
 echo "All benchmarks completed." | tee -a /tmp/results.txt
 echo "Use cat /tmp/results.txt to view the results."
 
-read -p "Do you want to send the results to Discord Benchmark channel? (y/n): " send_discord
-if [[ "$send_discord" == "y" ]]; then
-    webhook_url="https://arc.auxxxilium.tech/bench"
-	read -p "Enter your username: " username
-	results=$(cat /tmp/results.txt)
-	[ -z "$username" ] && username="Anonymous"
-	# Build the message with two empty lines after the username
-	message="$(echo -e "Benchmark from $username\n\n$results")"
-	# Use jq to encode and wrap as a code block
-	json_content=$(jq -nc --arg c "$message" '{content: "\n\($c)\n"}')
-	response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
-    if echo "$response" | grep -q '"status":"sent"'; then
-        echo "Results sent to Discord."
-    else
-        echo "Failed to send results to Discord. Response: $response"
-    fi
+if [ -n "${1}" ] || [ -n "${2}" ] || [ -n "${3}" ] || [ ! -f "/usr/bin/jq" ]; then
+	echo "No upload to Discord possible."
 else
-    echo "Results not sent."
+	read -p "Do you want to send the results to Discord Benchmark channel? (y/n): " send_discord
+	if [[ "$send_discord" == "y" ]]; then
+		webhook_url="https://arc.auxxxilium.tech/bench"
+		read -p "Enter your username: " username
+		results=$(cat /tmp/results.txt)
+		[ -z "$username" ] && username="Anonymous"
+		# Build the message with two empty lines after the username
+		message=$(echo -e "Benchmark from $username\n\n$results")
+		# Use jq to encode and wrap as a code block
+		json_content=$(jq -nc --arg c "$message" '{content: "\n\($c)\n"}')
+		response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
+		if echo "$response" | grep -q '"status":"sent"'; then
+			echo "Results sent to Discord."
+		else
+			echo "Failed to send results to Discord. Response: $response"
+		fi
+	else
+		echo "Results not sent."
+	fi
 fi
 
 exit 0
