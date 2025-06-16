@@ -13,9 +13,7 @@ sudo -i
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh
-chmod +x /root/bench.sh
-/root/bench.sh
+curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh && /root/bench.sh
 ```
 
 ### ABB activation
@@ -23,9 +21,7 @@ chmod +x /root/bench.sh
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://abb.auxxxilium.tech -o /root/activation
-chmod +x /root/activation
-/root/activation
+curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation && /root/activation
 ```
 
 ### Surveillance Video Extension
@@ -33,9 +29,7 @@ chmod +x /root/activation
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://sve.auxxxilium.tech -o /root/installsve
-chmod +x /root/installsve
-/root/installsve
+curl -fsSL https://sve.auxxxilium.tech -o /root/installsve && chmod +x /root/installsve && /root/installsve
 ```
 
 ### Forcemount (Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks))
@@ -43,6 +37,7 @@ chmod +x /root/installsve
 This needs to run as 'root' while DSM Installation screen is shown (Usage at own risk):
 
 ```
-curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount
-chmod +x /root/forcemount
-/root/forcemount
+curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /root/forcemount
+/root/forcemount --createpool --auto      # Create a new pool
+/root/forcemount --install --md /dev/md2  # install the tool, automatically mounts the pool on system startup
+```
