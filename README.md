@@ -8,6 +8,8 @@
 sudo -i
 ```
 
+---
+
 ### Arc Benchmark
 
 This needs to run as 'root' (Usage at own risk):
@@ -16,7 +18,9 @@ This needs to run as 'root' (Usage at own risk):
 curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh && /root/bench.sh
 ```
 
-### ABB activation
+---
+
+### Active Backup for Business (Active Backup for Microsoft 365, Active Backup for Google Workspace) activation
 
 This needs to run as 'root' (Usage at own risk):
 
@@ -24,15 +28,12 @@ This needs to run as 'root' (Usage at own risk):
 curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation && /root/activation
 ```
 
-### Surveillance Video Extension
+---
 
-This needs to run as 'root' (Usage at own risk):
 
-```
-curl -fsSL https://sve.auxxxilium.tech -o /root/installsve && chmod +x /root/installsve && /root/installsve
-```
+### Forcemount
 
-### Forcemount (Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks))
+- Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks)
 
 This needs to run as 'root' while DSM Installation screen is shown (Usage at own risk):
 
@@ -40,4 +41,22 @@ This needs to run as 'root' while DSM Installation screen is shown (Usage at own
 curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /root/forcemount
 /root/forcemount --createpool --auto      # Create a new pool
 /root/forcemount --install --md /dev/md2  # install the tool, automatically mounts the pool on system startup
+```
+
+---
+
+### Arc PVE Installer / Updater
+
+- Thanks to [@And-rix](https://github.com/And-rix)
+
+This needs to run in PVE Shell (Usage at own risk):
+
+Installer:
+```
+curl -fsSL https://pveinstall.auxxxilium.tech -o /root/arc-install.sh && chmod +x /root/arc-install.sh && /root/arc-install.sh
+```
+
+Updater:
+```
+curl -fsSL https://pveupdate.auxxxilium.tech -o /root/arc-update.sh && chmod +x /root/arc-update.sh && /root/arc-update.sh
 ```
