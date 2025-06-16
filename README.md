@@ -13,12 +13,9 @@ sudo -i
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://bench.auxxxilium.tech | bash -s /volume1 1G 6
-```
-
-Custom Values:
-```
-curl -fsSL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH_VERSION
+curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh
+chmod +x /root/bench.sh
+/root/bench.sh
 ```
 
 ### ABB activation
@@ -26,7 +23,9 @@ curl -fsSL https://bench.auxxxilium.tech | bash -s PATH SIZE GEEKBENCH_VERSION
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://abb.auxxxilium.tech | bash
+curl -fsSL https://abb.auxxxilium.tech -o /root/activation
+chmod +x /root/activation
+/root/activation
 ```
 
 ### Surveillance Video Extension
@@ -34,7 +33,9 @@ curl -fsSL https://abb.auxxxilium.tech | bash
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://sve.auxxxilium.tech | bash
+curl -fsSL https://sve.auxxxilium.tech -o /root/installsve
+chmod +x /root/installsve
+/root/installsve
 ```
 
 ### Forcemount (Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks))
@@ -42,5 +43,6 @@ curl -fsSL https://sve.auxxxilium.tech | bash
 This needs to run as 'root' while DSM Installation screen is shown (Usage at own risk):
 
 ```
-curl -fsSL https://forcemount.auxxxilium.tech | bash
-```
+curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount
+chmod +x /root/forcemount
+/root/forcemount
