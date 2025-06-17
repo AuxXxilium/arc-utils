@@ -30,6 +30,34 @@ curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/act
 
 ---
 
+### App Installer (for Apps with online verification)
+
+- Advanced Media Extensions 4.0.0-4025
+- Surveillance Video Extension 1.0.0-0015
+
+This needs to run as 'root' (Usage at own risk):
+
+```
+curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
+/root/appinstaller --install-app (Choose the app in App Store and press install while the script is running)
+```
+
+---
+
+### App Downloader (for Apps with online verification)
+
+- Advanced Media Extensions 4.0.0-4025
+- Surveillance Video Extension 1.0.0-0015
+
+This needs to run as 'root' (Usage at own risk):
+
+```
+curl -fsSL https://appdownloader.auxxxilium.tech -o /root/appdownloader && chmod +x /root/appdownloader
+/root/appdownloader --install-ame (Force install and activate Advanced Media Extensions)
+/root/appdownloader --install-sve (Force install and activate Surveillance Video Extension)
+```
+
+---
 
 ### Forcemount
 
