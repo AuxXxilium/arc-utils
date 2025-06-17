@@ -1,8 +1,8 @@
 <center><img width="845" alt="arc_loader" src="https://github.com/AuxXxilium/AuxXxilium/assets/67025065/ef975a36-9f3e-4cfb-813c-402db69611e7"></center>
 
-# These are Utilities for usage with Arc Loader
+# These are Utilities for usage with Arc Loader / Xpenology
 
-### Root login to DSM
+## Root login to DSM
 
 ```
 sudo -i
@@ -10,81 +10,112 @@ sudo -i
 
 ---
 
-### Arc Benchmark
+## Arc Benchmark
+
+Howto use:
+1. Download the benchmark script to your Xpenology NAS.
+2. Execute the script to run the benchmark.
+3. Follow the prompts to complete the benchmark process.
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh && /root/bench.sh
+curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh
+/root/bench.sh
 ```
 
 ---
 
-### Active Backup for Business (Active Backup for Microsoft 365, Active Backup for Google Workspace) activation
+## Active Backup for Business activation
+
+Howto use:
+1. Download the activation script to your Xpenology NAS.
+2. Execute the script to activate Active Backup for Business, Active Backup for Microsoft 365 and Active Backup for Google Workspace.
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation && /root/activation
+curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation
+/root/activation
 ```
 
 ---
 
-### App Installer (for Apps with online verification)
+## App Installer (for Apps with online verification)
 
-- Advanced Media Extensions 4.0.0-4025
-- Surveillance Video Extension 1.0.0-0015
+- Advanced Media Extensions (4.0.0-4025)
+- Surveillance Video Extension (1.0.0-0015)
+
+Howto use:
+1. Download the appinstaller script to your Xpenology NAS.
+2. Execute the script with the `--install-app` option to install and activate the app. (Choose the app in App Store and press install while the script is running)
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
-/root/appinstaller --install-app (Choose the app in App Store and press install while the script is running)
+/root/appinstaller --install-app
 ```
 
 ---
 
-### App Downloader (for Apps with online verification)
+## App Downloader (for Apps with online verification)
 
-- Advanced Media Extensions 4.0.0-4025
-- Surveillance Video Extension 1.0.0-0015
+- Advanced Media Extensions (4.0.0-4025)
+- Surveillance Video Extension (1.0.0-0015)
+
+Howto use:
+1. Download the appdownloader script to your Xpenology NAS.
+2. Execute the script with the `--install-ame` (Advanced Media Extensions) and `--install-sve` (Surveillance Video Extension) options to install and activate the app.
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://appdownloader.auxxxilium.tech -o /root/appdownloader && chmod +x /root/appdownloader
-/root/appdownloader --install-ame (Force install and activate Advanced Media Extensions)
-/root/appdownloader --install-sve (Force install and activate Surveillance Video Extension)
+/root/appdownloader --install-ame
+/root/appdownloader --install-sve
 ```
 
 ---
 
-### Forcemount
+## Forcemount
 
 - Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks)
+
+Howto use:
+1. Download the forcemount script to your Xpenology NAS.
+2. Execute the script with the `--createpool --auto` option to create a new storage pool.
+3. Execute the script with the `--install --md /dev/md2` option to install the tool, which automatically mounts the pool on system startup.
 
 This needs to run as 'root' while DSM Installation screen is shown (Usage at own risk):
 
 ```
 curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /root/forcemount
-/root/forcemount --createpool --auto      # Create a new pool
-/root/forcemount --install --md /dev/md2  # install the tool, automatically mounts the pool on system startup
+/root/forcemount --createpool --auto
+/root/forcemount --install --md /dev/md2
 ```
 
 ---
 
-### Arc PVE Installer / Updater
+## Arc PVE Installer / Updater
 
 - Thanks to [@And-rix](https://github.com/And-rix)
+
+Howto use:
+1. Download the installer or updater script to your Proxmox VE (PVE) server.
+2. Execute the script to install or update Arc Loader on your PVE server.
+3. Follow the prompts to complete the installation or update process.
 
 This needs to run in PVE Shell (Usage at own risk):
 
 Installer:
 ```
-curl -fsSL https://pveinstall.auxxxilium.tech -o /root/arc-install.sh && chmod +x /root/arc-install.sh && /root/arc-install.sh
+curl -fsSL https://pveinstall.auxxxilium.tech -o /root/arc-install.sh && chmod +x /root/arc-install.sh
+/root/arc-install.sh
 ```
 
 Updater:
 ```
-curl -fsSL https://pveupdate.auxxxilium.tech -o /root/arc-update.sh && chmod +x /root/arc-update.sh && /root/arc-update.sh
+curl -fsSL https://pveupdate.auxxxilium.tech -o /root/arc-update.sh && chmod +x /root/arc-update.sh
+/root/arc-update.sh
 ```
