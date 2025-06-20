@@ -21,6 +21,8 @@ This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh
+```
+```
 /root/bench.sh
 ```
 
@@ -36,25 +38,9 @@ This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation
+```
+```
 /root/activation
-```
-
----
-
-## App Installer (for Apps with online verification)
-
-- Advanced Media Extensions (4.0.0-4025)
-- Surveillance Video Extension (1.0.0-0015)
-
-Howto use:
-1. Download the appinstaller script to your Xpenology NAS.
-2. Execute the script with the `--install-app` option to install and activate the app. (Choose the app in App Store and press install while the script is running)
-
-This needs to run as 'root' (Usage at own risk):
-
-```
-curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
-/root/appinstaller --install-app
 ```
 
 ---
@@ -72,7 +58,11 @@ This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://appdownloader.auxxxilium.tech -o /root/appdownloader && chmod +x /root/appdownloader
+```
+```
 /root/appdownloader --install-ame
+```
+```
 /root/appdownloader --install-sve
 ```
 
@@ -91,7 +81,11 @@ This needs to run as 'root' while DSM Installation screen is shown (Usage at own
 
 ```
 curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /root/forcemount
+```
+```
 /root/forcemount --createpool --auto
+```
+```
 /root/forcemount --install --md /dev/md2
 ```
 
@@ -111,11 +105,15 @@ This needs to run in PVE Shell (Usage at own risk):
 Installer:
 ```
 curl -fsSL https://pveinstall.auxxxilium.tech -o /root/arc-install.sh && chmod +x /root/arc-install.sh
+```
+```
 /root/arc-install.sh
 ```
 
 Updater:
 ```
 curl -fsSL https://pveupdate.auxxxilium.tech -o /root/arc-update.sh && chmod +x /root/arc-update.sh
+```
+```
 /root/arc-update.sh
 ```
