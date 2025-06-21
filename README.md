@@ -28,42 +28,42 @@ curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/ben
 
 ---
 
-## Active Backup for Business activation
+## App Installer (for Apps with online activation)
 
-Howto use:
-1. Download the activation script to your Xpenology NAS.
-2. Execute the script to activate Active Backup for Business, Active Backup for Microsoft 365 and Active Backup for Google Workspace.
-
-This needs to run as 'root' (Usage at own risk):
-
-```
-curl -fsSL https://abb.auxxxilium.tech -o /root/activation && chmod +x /root/activation
-```
-```
-/root/activation
-```
-
----
-
-## App Downloader (for Apps with online verification)
-
+- Active Backup for Business (2.7.1-23235)
+- Active Backup for Business G Suite (2.2.5-14029)
+- Active Backup for Business Office 365 (2.6.0-14071)
 - Advanced Media Extensions (4.0.0-4025)
 - Surveillance Video Extension (1.0.0-0015)
 
 Howto use:
-1. Download the appdownloader script to your Xpenology NAS.
-2. Execute the script with the `--install-ame` (Advanced Media Extensions) and `--install-sve` (Surveillance Video Extension) options to install and activate the app.
+1. Download the appinstaller script to your Xpenology NAS.
+2. Execute the script with the command below to install and activate the app.
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://appdownloader.auxxxilium.tech -o /root/appdownloader && chmod +x /root/appdownloader
+curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
 ```
+### Active Backup for Business 2.7.1-23235:
 ```
-/root/appdownloader --install-ame
+/root/appinstaller --install-abb
 ```
+### Active Backup for Business GSuite 2.2.5-14029:
 ```
-/root/appdownloader --install-sve
+/root/appinstaller --install-abb-gsuite
+```
+### Active Backup for Business Office 365 2.6.0-14071:
+```
+/root/appinstaller --install-abb-office365
+```
+### Advanced Media Extensions 4.0.0-4025:
+```
+/root/appinstaller --install-ame
+```
+### Surveillance Video Extension 1.0.0-0015:
+```
+/root/appinstaller --install-sve
 ```
 
 ---
