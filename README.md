@@ -45,23 +45,23 @@ This needs to run as 'root' (Usage at own risk):
 ```
 curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
 ```
-### Active Backup for Business 2.7.1-23235:
+### Active Backup for Business:
 ```
 /root/appinstaller --install-abb
 ```
-### Active Backup for Business GSuite 2.2.5-14029:
+### Active Backup for Business GSuite:
 ```
 /root/appinstaller --install-abb-gsuite
 ```
-### Active Backup for Business Office 365 2.6.0-14071:
+### Active Backup for Business Office 365:
 ```
 /root/appinstaller --install-abb-office365
 ```
-### Advanced Media Extensions 4.0.0-4025:
+### Advanced Media Extensions:
 ```
 /root/appinstaller --install-ame
 ```
-### Surveillance Video Extension 1.0.0-0015:
+### Surveillance Video Extension:
 ```
 /root/appinstaller --install-sve
 ```
