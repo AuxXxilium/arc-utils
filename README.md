@@ -10,9 +10,9 @@ sudo -i
 
 ---
 
-## Arc Benchmark
+## Arc Benchmark 1.0.3
 
-Howto use:
+How-to use:
 1. Download the benchmark script to your Xpenology NAS.
 2. Execute the script to run the benchmark.
 3. Follow the prompts to complete the benchmark process.
@@ -28,16 +28,22 @@ curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/ben
 
 ---
 
-## App Installer (for Apps with online activation)
+## App Installer 1.0.2
 
-- Active Backup for Business (2.7.1-23235)
+Install and activate the following apps on your Arc or Xpenology NAS:
+- Active Backup for Business (3.0.0-24638)
 - Active Backup for Business G Suite (2.2.5-14029)
 - Active Backup for Business Office 365 (2.6.0-14071)
 - Advanced Media Extensions (4.0.0-4025)
 - Surveillance Video Extension (1.0.0-0015)
 
-Howto use:
-1. Download the appinstaller script to your Xpenology NAS.
+Patch the following apps on your Arc or Xpenology NAS:
+- Mail-Plus Server (3.3.0-21523)
+- Surveillance Station (9.2.0-11289 / 9.2.3-11755)
+- Virtual Machine Manager (2.7.0-12229)
+
+How-to use:
+1. Download the appinstaller script to your Arc or Xpenology NAS.
 2. Execute the script with the command below to install and activate the app.
 
 This needs to run as 'root' (Usage at own risk):
@@ -65,6 +71,18 @@ curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +
 ```
 /root/appinstaller --install-sve
 ```
+### Mail-Plus Server:
+```
+/root/appinstaller --patch-mp
+```
+### Surveillance Station:
+```
+/root/appinstaller --patch-ss
+```
+### Virtual Machine Manager:
+```
+/root/appinstaller --patch-vmm
+```
 
 ---
 
@@ -72,7 +90,7 @@ curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +
 
 - Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks)
 
-Howto use:
+How-to use:
 1. Download the forcemount script to your Xpenology NAS.
 2. Execute the script with the `--createpool --auto` option to create a new storage pool.
 3. Execute the script with the `--install --md /dev/md2` option to install the tool, which automatically mounts the pool on system startup.
@@ -95,7 +113,7 @@ curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /r
 
 - Thanks to [@And-rix](https://github.com/And-rix)
 
-Howto use:
+How-to use:
 1. Download the installer or updater script to your Proxmox VE (PVE) server.
 2. Execute the script to install or update Arc Loader on your PVE server.
 3. Follow the prompts to complete the installation or update process.
