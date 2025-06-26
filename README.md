@@ -10,7 +10,7 @@ sudo -i
 
 ---
 
-## Arc Benchmark 1.0.3
+## Arc Benchmark 1.0.4
 
 How-to use:
 1. Download the benchmark script to your Xpenology NAS.
