@@ -10,7 +10,7 @@ sudo -i
 
 ---
 
-## Arc Benchmark 1.0.4
+## Arc Benchmark
 
 How-to use:
 1. Download the benchmark script to your Xpenology NAS.
@@ -28,7 +28,7 @@ curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/ben
 
 ---
 
-## App Installer 1.0.2
+## App Installer
 
 Install and activate the following apps on your Arc or Xpenology NAS:
 - Active Backup for Business (3.0.0-24638)
