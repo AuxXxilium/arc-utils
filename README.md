@@ -109,29 +109,21 @@ curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /r
 
 ---
 
-## Arc PVE Installer / Updater
+## Arc PVE Toolkit
 
 - Thanks to [@And-rix](https://github.com/And-rix)
 
 How-to use:
-1. Download the installer or updater script to your Proxmox VE (PVE) server.
+1. Download the toolkit script to your Proxmox VE (PVE) server.
 2. Execute the script to install or update Arc Loader on your PVE server.
 3. Follow the prompts to complete the installation or update process.
 
 This needs to run in PVE Shell (Usage at own risk):
 
-Installer:
+Toolkit:
 ```
-curl -fsSL https://pveinstall.auxxxilium.tech -o /root/arc-install.sh && chmod +x /root/arc-install.sh
-```
-```
-/root/arc-install.sh
-```
-
-Updater:
-```
-curl -fsSL https://pveupdate.auxxxilium.tech -o /root/arc-update.sh && chmod +x /root/arc-update.sh
+curl -fsSL https://pvetoolkit.auxxxilium.tech -o /root/arc-toolkit.sh && chmod +x /root/arc-toolkit.sh
 ```
 ```
-/root/arc-update.sh
+/root/arc-toolkit.sh
 ```
