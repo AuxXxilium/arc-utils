@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.1.0"
+VERSION="1.1.3"
 
 function run_fio_test {
     local test_name=$1
@@ -14,12 +14,14 @@ function run_fio_test {
     local blocksize=$3
     local iodepth=$4
     local output_file=$5
+    local direct_flag=$6
 
-    printf "Running FIO %s test...\n" "$test_name"
-    fio --name=TEST --eta-newline=5s --filename="$DISK_PATH/fio-tempfile.dat" \
-        --rw="$rw_mode" --size=500m --io_size=10g --blocksize="$blocksize" \
-        --ioengine=libaio --fsync=1 --iodepth="$iodepth" --direct=1 --numjobs=1 \
-        --runtime=30 --group_reporting > "$output_file" 2>/dev/null
+    printf "Running %s...\n" "$test_name"
+
+    fio --name=TEST --filename="$DISK_PATH/fio-tempfile.dat" \
+        --rw="$rw_mode" --size=1G --blocksize="$blocksize" \
+        --ioengine=libaio --fsync="$direct_flag" --iodepth="$iodepth" --direct="$direct_flag" --numjobs="$iodepth" \
+        --runtime=10s --time_based --group_reporting > "$output_file" 2>/dev/null
     rm -f "$DISK_PATH/fio-tempfile.dat" 2>/dev/null
 }
 
@@ -80,42 +82,26 @@ function fio_summary {
                         found = 1;
                     }
                 }
-            } else if (test_type == "randrw") {
-                if (/read: IOPS=/) {
-                    match($0, /read: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, read_arr);
-                    if (read_arr[1] && read_arr[2] && read_arr[3]) {
-                        read_bw = "  Read BW: " format_speed(read_arr[2], read_arr[3]) ", IOPS: " format_iops_token(read_arr[1]);
-                    }
-                }
-                if (/write: IOPS=/) {
-                    match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, write_arr);
-                    if (write_arr[1] && write_arr[2] && write_arr[3]) {
-                        write_bw = "  Write BW: " format_speed(write_arr[2], write_arr[3]) ", IOPS: " format_iops_token(write_arr[1]);
+            } else if (test_type == "randwrite") {
+                if (!found) {
+                    match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
+                    if (arr[1] && arr[2] && arr[3]) {
+                        print "  BW: " format_speed(arr[2], arr[3]) ", IOPS: " format_iops_token(arr[1]);
+                        found = 1;
                     }
                 }
             }
         }
         END {
-            if (test_type == "randrw") {
-                if (read_bw) print read_bw;
-                if (write_bw) print write_bw;
-                if (!read_bw && !write_bw) {
-                    print "  Read BW: 0 KB/s, IOPS: 0";
-                    print "  Write BW: 0 KB/s, IOPS: 0";
-                }
-            } else {
-                if (!found) {
-                    print "  BW: 0 KB/s, IOPS: 0";
-                }
-            }
+            if (!found) print "  No valid data found for " test_type " test.";
         }
     ' "$file"
 }
 
 function launch_geekbench {
-    VERSION=$1
+    GB_VERSION=$1
 
-    GEEKBENCH_PATH=${HOME:-/root}/geekbench_$VERSION
+    GEEKBENCH_PATH=${HOME:-/root}/geekbench_$GB_VERSION
     mkdir -p "$GEEKBENCH_PATH"
 
     GB_URL=""
@@ -182,15 +168,15 @@ function launch_geekbench {
 }
 
 printf "Arc Benchmark by AuxXxilium <https://github.com/AuxXxilium>\n\n"
-printf "This script will benchmark your storage (FIO) and CPU (Geekbench). Use at your own risk.\n\n"
+printf "This script will your storage (FIO) and CPU (Geekbench) performance. Use at your own risk.\n\n"
 
-DEVICE="${1:-/volume1}"
+DEVICE="${1:-volume1}"
 GEEKBENCH_VERSION="${2:-6}"
 
 rm -f /tmp/results.txt /tmp/fio_*.txt
 
 if [[ -t 0 ]]; then
-    read -p "Enter path for benchmark [default: $DEVICE]: " input
+    read -p "Enter volume path [default: $DEVICE]: " input
     DEVICE="${input:-$DEVICE}"
 
     read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
@@ -201,25 +187,8 @@ else
     printf "  Geekbench: %s\n" "$GEEKBENCH_VERSION"
 fi
 
-DISK_PATH="$DEVICE"
-FIO_SCALE=1
-DISK_TYPE="HDD"
-src=$(df -P "$DISK_PATH" 2>/dev/null | awk 'NR==2{print $1}')
-if [ -n "$src" ]; then
-    dev=$(basename "${src}")
-    base_dev=$(echo "$dev" | sed -E 's/(p?[0-9]+)$//')
-    rotational_file="/sys/block/$base_dev/queue/rotational"
-    if [ -f "$rotational_file" ]; then
-        if [ "$(cat "$rotational_file")" = "0" ]; then
-            FIO_SCALE=8
-            DISK_TYPE="SSD"
-        fi
-    fi
-fi
-SEQ_IODEPTH=$((32 * FIO_SCALE))
-RAND_IODEPTH=$((1 * FIO_SCALE))
-
-printf "\nDetected %s at %s\n" "$DISK_TYPE" "$DISK_PATH"
+DEVICE="${DEVICE#/}"
+DISK_PATH="/$DEVICE"
 
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//g' | xargs)
 CORES=$(grep -c ^processor /proc/cpuinfo)
@@ -242,28 +211,51 @@ SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && echo "virtual" || echo "physical"
     printf "  %-20s %s\n" "Model:"    "$MODEL";
     printf "  %-20s %s\n" "Kernel:"   "$KERNEL";
     printf "  %-20s %s\n" "System:"   "$SYSTEM";
-    printf "  %-20s %s\n" "Disk Path:" "$DISK_PATH";
-    printf "  %-20s %s\n" "Disk Type:" "$DISK_TYPE";
+    printf "  %-20s %s\n" "Disk Path:" "$DEVICE";
     printf "  %-20s %s\n" "Filesystem:" "$FILESYSTEM";
     echo "";
 } | tee -a /tmp/results.txt
 
 if command -v fio &>/dev/null; then
-    printf "Starting FIO...\n"
+    SEQ_IODEPTH=8
+    RAND_IODEPTH=16
+
+    printf "Starting FIO (direct tests)...\n"
     sleep 3
-    run_fio_test "Sequential Read" "read" "1024k" "$SEQ_IODEPTH" "/tmp/fio_read.txt"
+    run_fio_test "Sequential Read" "read" "1M" "$SEQ_IODEPTH" "/tmp/fio_read_direct.txt" 1
     sleep 3
-    run_fio_test "Sequential Write" "write" "1024k" "$SEQ_IODEPTH" "/tmp/fio_write.txt"
+    run_fio_test "Sequential Write" "write" "1M" "$SEQ_IODEPTH" "/tmp/fio_write_direct.txt" 1
     sleep 3
-    run_fio_test "Random Read" "randread" "4k" "$RAND_IODEPTH" "/tmp/fio_randread.txt"
+    run_fio_test "Random Read" "randread" "64k" "$RAND_IODEPTH" "/tmp/fio_randread_direct.txt" 1
     sleep 3
-    run_fio_test "Random Mixed Read/Write" "randrw" "4k" "$RAND_IODEPTH" "/tmp/fio_randrw.txt"
+    run_fio_test "Random Write" "randwrite" "64k" "$RAND_IODEPTH" "/tmp/fio_randwrite_direct.txt" 1
     sleep 3
-    printf "Expected disk performance:\n" | tee -a /tmp/results.txt
-    printf "Sequential Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
-    printf "Sequential Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
-    printf "Random Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
-    printf "Random Mixed Read/Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randrw.txt "randrw" | tee -a /tmp/results.txt
+
+    printf "\nStarting FIO (buffered tests)...\n"
+    sleep 3
+    run_fio_test "Sequential Read" "read" "1M" "$SEQ_IODEPTH" "/tmp/fio_read_buffered.txt" 0
+    sleep 3
+    run_fio_test "Sequential Write" "write" "1M" "$SEQ_IODEPTH" "/tmp/fio_write_buffered.txt" 0
+    sleep 3
+    run_fio_test "Random Read" "randread" "64k" "$RAND_IODEPTH" "/tmp/fio_randread_buffered.txt" 0
+    sleep 3
+    run_fio_test "Random Write" "randwrite" "64k" "$RAND_IODEPTH" "/tmp/fio_randwrite_buffered.txt" 0
+    sleep 3
+
+    printf "\n"
+    printf "Estimated disk performance:\n\n" | tee -a /tmp/results.txt
+
+    printf "Results (Direct I/O):\n" | tee -a /tmp/results.txt
+    printf "Sequential Read (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_direct.txt "read" | tee -a /tmp/results.txt
+    printf "Sequential Write (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_direct.txt "write" | tee -a /tmp/results.txt
+    printf "Random Read (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_direct.txt "randread" | tee -a /tmp/results.txt
+    printf "Random Write (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_direct.txt "randwrite" | tee -a /tmp/results.txt
+
+    printf "\nResults (Buffered I/O):\n" | tee -a /tmp/results.txt
+    printf "Sequential Read (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_buffered.txt "read" | tee -a /tmp/results.txt
+    printf "Sequential Write (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_buffered.txt "write" | tee -a /tmp/results.txt
+    printf "Random Read (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_buffered.txt "randread" | tee -a /tmp/results.txt
+    printf "Random Write (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_buffered.txt "randwrite" | tee -a /tmp/results.txt
 else
     printf "FIO not found. Skipping disk benchmark.\n" | tee -a /tmp/results.txt
 fi
