@@ -38,50 +38,42 @@ Install and activate the following apps on your Arc or Xpenology NAS:
 - Surveillance Video Extension (1.0.0-0015)
 
 Patch the following apps on your Arc or Xpenology NAS:
-- Mail-Plus Server (3.3.0-21523)
-- Surveillance Station (9.2.0-11289 / 9.2.3-11755)
+- MailPlus Server (3.3.0-21523)
+- Surveillance Station (9.2.3-11755)
 - Virtual Machine Manager (2.7.0-12229)
 
 How-to use:
 1. Download the appinstaller script to your Arc or Xpenology NAS.
-2. Execute the script with the command below to install and activate the app.
+2. Execute the script to install or activate the app.
 
 This needs to run as 'root' (Usage at own risk):
 
 ```
 curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
 ```
-### Active Backup for Business:
 ```
-/root/appinstaller --install-abb
+/root/appinstaller
 ```
-### Active Backup for Business GSuite:
+
+---
+
+## Arc PVE Toolkit
+
+- Thanks to [@And-rix](https://github.com/And-rix)
+
+How-to use:
+1. Download the toolkit script to your Proxmox VE (PVE) server.
+2. Execute the script to install or update Arc Loader on your PVE server.
+3. Follow the prompts to complete the installation or update process.
+
+This needs to run in PVE Shell (Usage at own risk):
+
+Toolkit:
 ```
-/root/appinstaller --install-abb-gsuite
+curl -fsSL https://pvetoolkit.auxxxilium.tech -o /root/arc-toolkit.sh && chmod +x /root/arc-toolkit.sh
 ```
-### Active Backup for Business Office 365:
 ```
-/root/appinstaller --install-abb-office365
-```
-### Advanced Media Extensions:
-```
-/root/appinstaller --install-ame
-```
-### Surveillance Video Extension:
-```
-/root/appinstaller --install-sve
-```
-### Mail-Plus Server:
-```
-/root/appinstaller --patch-mp
-```
-### Surveillance Station:
-```
-/root/appinstaller --patch-ss
-```
-### Virtual Machine Manager:
-```
-/root/appinstaller --patch-vmm
+/root/arc-toolkit.sh
 ```
 
 ---
@@ -105,25 +97,4 @@ curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /r
 ```
 ```
 /root/forcemount --install --md /dev/md2
-```
-
----
-
-## Arc PVE Toolkit
-
-- Thanks to [@And-rix](https://github.com/And-rix)
-
-How-to use:
-1. Download the toolkit script to your Proxmox VE (PVE) server.
-2. Execute the script to install or update Arc Loader on your PVE server.
-3. Follow the prompts to complete the installation or update process.
-
-This needs to run in PVE Shell (Usage at own risk):
-
-Toolkit:
-```
-curl -fsSL https://pvetoolkit.auxxxilium.tech -o /root/arc-toolkit.sh && chmod +x /root/arc-toolkit.sh
-```
-```
-/root/arc-toolkit.sh
 ```
