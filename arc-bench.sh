@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.1.3"
+VERSION="1.1.4"
 
 function run_fio_test {
     local test_name=$1
@@ -20,8 +20,8 @@ function run_fio_test {
 
     fio --name=TEST --filename="$DISK_PATH/fio-tempfile.dat" \
         --rw="$rw_mode" --size=1G --blocksize="$blocksize" \
-        --ioengine=libaio --fsync="$direct_flag" --iodepth="$iodepth" --direct="$direct_flag" --numjobs="$iodepth" \
-        --runtime=10s --time_based --group_reporting > "$output_file" 2>/dev/null
+        --ioengine=libaio --fsync="$direct_flag" --iodepth="$iodepth" --direct="$direct_flag" --numjobs="4" \
+        --group_reporting > "$output_file" 2>/dev/null
     rm -f "$DISK_PATH/fio-tempfile.dat" 2>/dev/null
 }
 
@@ -222,9 +222,9 @@ if command -v fio &>/dev/null; then
 
     printf "Starting FIO (direct tests)...\n"
     sleep 3
-    run_fio_test "Sequential Read" "read" "1M" "$SEQ_IODEPTH" "/tmp/fio_read_direct.txt" 1
+    run_fio_test "Sequential Read" "read" "16M" "$SEQ_IODEPTH" "/tmp/fio_read_direct.txt" 1
     sleep 3
-    run_fio_test "Sequential Write" "write" "1M" "$SEQ_IODEPTH" "/tmp/fio_write_direct.txt" 1
+    run_fio_test "Sequential Write" "write" "16M" "$SEQ_IODEPTH" "/tmp/fio_write_direct.txt" 1
     sleep 3
     run_fio_test "Random Read" "randread" "64k" "$RAND_IODEPTH" "/tmp/fio_randread_direct.txt" 1
     sleep 3
@@ -233,9 +233,9 @@ if command -v fio &>/dev/null; then
 
     printf "\nStarting FIO (buffered tests)...\n"
     sleep 3
-    run_fio_test "Sequential Read" "read" "1M" "$SEQ_IODEPTH" "/tmp/fio_read_buffered.txt" 0
+    run_fio_test "Sequential Read" "read" "16M" "$SEQ_IODEPTH" "/tmp/fio_read_buffered.txt" 0
     sleep 3
-    run_fio_test "Sequential Write" "write" "1M" "$SEQ_IODEPTH" "/tmp/fio_write_buffered.txt" 0
+    run_fio_test "Sequential Write" "write" "16M" "$SEQ_IODEPTH" "/tmp/fio_write_buffered.txt" 0
     sleep 3
     run_fio_test "Random Read" "randread" "64k" "$RAND_IODEPTH" "/tmp/fio_randread_buffered.txt" 0
     sleep 3
@@ -246,16 +246,16 @@ if command -v fio &>/dev/null; then
     printf "Estimated disk performance:\n\n" | tee -a /tmp/results.txt
 
     printf "Results (Direct I/O):\n" | tee -a /tmp/results.txt
-    printf "Sequential Read (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_direct.txt "read" | tee -a /tmp/results.txt
-    printf "Sequential Write (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_direct.txt "write" | tee -a /tmp/results.txt
-    printf "Random Read (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_direct.txt "randread" | tee -a /tmp/results.txt
-    printf "Random Write (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_direct.txt "randwrite" | tee -a /tmp/results.txt
+    printf "Sequential Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_direct.txt "read" | tee -a /tmp/results.txt
+    printf "Sequential Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_direct.txt "write" | tee -a /tmp/results.txt
+    printf "Random Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_direct.txt "randread" | tee -a /tmp/results.txt
+    printf "Random Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_direct.txt "randwrite" | tee -a /tmp/results.txt
 
     printf "\nResults (Buffered I/O):\n" | tee -a /tmp/results.txt
-    printf "Sequential Read (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_buffered.txt "read" | tee -a /tmp/results.txt
-    printf "Sequential Write (1M):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_buffered.txt "write" | tee -a /tmp/results.txt
-    printf "Random Read (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_buffered.txt "randread" | tee -a /tmp/results.txt
-    printf "Random Write (64k):\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_buffered.txt "randwrite" | tee -a /tmp/results.txt
+    printf "Sequential Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read_buffered.txt "read" | tee -a /tmp/results.txt
+    printf "Sequential Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write_buffered.txt "write" | tee -a /tmp/results.txt
+    printf "Random Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread_buffered.txt "randread" | tee -a /tmp/results.txt
+    printf "Random Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite_buffered.txt "randwrite" | tee -a /tmp/results.txt
 else
     printf "FIO not found. Skipping disk benchmark.\n" | tee -a /tmp/results.txt
 fi
