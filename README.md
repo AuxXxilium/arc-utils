@@ -38,9 +38,11 @@ Install and activate the following apps on your Arc or Xpenology NAS:
 - Surveillance Video Extension (1.0.0-0015)
 
 Patch the following apps on your Arc or Xpenology NAS:
-- MailPlus Server (3.3.0-21523)
+- MailPlus Server (3.3.0-21523) with MailPlus Client (3.3.1-22027)
 - Surveillance Station (9.2.3-11755)
 - Virtual Machine Manager (2.7.0-12229)
+
+New: Ability to block updates for specific packages
 
 How-to use:
 1. Download the appinstaller script to your Arc or Xpenology NAS.
