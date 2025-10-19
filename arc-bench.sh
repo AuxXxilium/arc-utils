@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 
 function run_fio_test {
     local test_name=$1
@@ -194,11 +194,12 @@ CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//
 CORES=$(grep -c ^processor /proc/cpuinfo)
 RAM="$(free -b | awk '/Mem:/ {printf "%.1fGB", $2/1024/1024/1024}')"
 ARC="$(grep "LOADERVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
-[ -z "$ARC" ] && ARC="Unknown"
+[ -z "$ARC" ] && ARC="Unknown" || true
 MODEL="$(cat /etc.defaults/synoinfo.conf 2>/dev/null | grep "unique" | awk -F= '{print $2}' | tr -d '"' | xargs)"
-[ -z "$MODEL" ] && MODEL="Unknown"
+[ -z "$MODEL" ] && MODEL="Unknown" || true
 KERNEL="$(uname -r)"
 FILESYSTEM="$(df -T "$DISK_PATH" | awk 'NR==2 {print $2}')"
+[ -z "$FILESYSTEM" ] && echo "Unknown Filesystem" && exit 1 || true
 SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && echo "virtual" || echo "physical")
 
 {
