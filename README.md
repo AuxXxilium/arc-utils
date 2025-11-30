@@ -10,6 +10,50 @@ sudo -i
 
 ---
 
+## AppInstaller
+
+- Thanks to [@ohyeah521](https://github.com/ohyeah521) for the help
+
+Install & patch or activate the following apps on your Arc or Xpenology NAS (if not installed):
+- Active Backup for Business (3.1.0-24967)
+- Active Backup for Business G Suite (2.2.6-14205)
+- Active Backup for Business Office 365 (2.6.1-14214)
+- Advanced Media Extensions (4.0.0-4025)
+- MailPlus Server (3.4.1-21569)
+- Surveillance Station (9.2.3-11755)
+- Surveillance Video Extension (1.0.0-0015)
+- Virtual Machine Manager (2.7.0-12229)
+
+Activate the following apps on your Arc or Xpenology NAS (if installed):
+- Active Backup for Business (3.1.0-24967)
+- Active Backup for Business G Suite (2.2.6-14205)
+- Active Backup for Business Office 365 (2.6.1-14214)
+
+Patch the following apps on your Arc or Xpenology NAS (if installed):
+- MailPlus Server (3.3.0-21523)
+- MailPlus Server (3.4.0-21566)
+- MailPlus Server (3.4.1-21569)
+- Surveillance Station (9.2.0-11289)
+- Surveillance Station (9.2.3-11755)
+- Surveillance Station (9.2.4-11880) only DVA1622 for now
+- Virtual Machine Manager (2.7.0-12229)
+
+How-to use:
+1. Download the appinstaller script to your Arc or Xpenology NAS.
+2. Execute the script to install or activate the app.
+3. Follow the prompts to complete the process.
+
+This needs to run as 'root' (Usage at own risk):
+
+```
+curl -fsSL https://appinstaller.xpenology.tech -o /root/appinstaller && chmod +x /root/appinstaller
+```
+```
+/root/appinstaller
+```
+
+---
+
 ## Arc Benchmark
 
 How-to use:
@@ -20,7 +64,7 @@ How-to use:
 This needs to run as 'root' (Usage at own risk):
 
 ```
-curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/bench.sh
+curl -fsSL https://bench.xpenology.tech -o /root/bench.sh && chmod +x /root/bench.sh
 ```
 ```
 /root/bench.sh
@@ -28,38 +72,9 @@ curl -fsSL https://bench.auxxxilium.tech -o /root/bench.sh && chmod +x /root/ben
 
 ---
 
-## App Installer
-
-Install and activate the following apps on your Arc or Xpenology NAS:
-- Active Backup for Business (3.0.0-24638)
-- Active Backup for Business G Suite (2.2.5-14029)
-- Active Backup for Business Office 365 (2.6.0-14071)
-- Advanced Media Extensions (4.0.0-4025)
-- Surveillance Video Extension (1.0.0-0015)
-
-Install & patch the following apps on your Arc or Xpenology NAS:
-- MailPlus Server (3.4.0-21566) with MailPlus Client (3.4.0-22159)
-- Surveillance Station (9.2.3-11755)
-- Virtual Machine Manager (2.7.0-12229)
-
-How-to use:
-1. Download the appinstaller script to your Arc or Xpenology NAS.
-2. Execute the script to install or activate the app.
-
-This needs to run as 'root' (Usage at own risk):
-
-```
-curl -fsSL https://appinstaller.auxxxilium.tech -o /root/appinstaller && chmod +x /root/appinstaller
-```
-```
-/root/appinstaller
-```
-
----
-
 ## Arc PVE Toolkit
 
-- Thanks to [@And-rix](https://github.com/And-rix)
+- Thanks to [@And-rix](https://github.com/And-rix) for this solution
 
 How-to use:
 1. Download the toolkit script to your Proxmox VE (PVE) server.
@@ -70,31 +85,8 @@ This needs to run in PVE Shell (Usage at own risk):
 
 Toolkit:
 ```
-curl -fsSL https://pvetoolkit.auxxxilium.tech -o /root/arc-toolkit.sh && chmod +x /root/arc-toolkit.sh
+curl -fsSL https://pvetoolkit.xpenology.tech -o /root/arc-toolkit.sh && chmod +x /root/arc-toolkit.sh
 ```
 ```
 /root/arc-toolkit.sh
-```
-
----
-
-## Forcemount
-
-- Create a storage pool on a disk type that DSM does not support (e.g., Hyper-V virtual disks)
-
-How-to use:
-1. Download the forcemount script to your Xpenology NAS.
-2. Execute the script with the `--createpool --auto` option to create a new storage pool.
-3. Execute the script with the `--install --md /dev/md2` option to install the tool, which automatically mounts the pool on system startup.
-
-This needs to run as 'root' while DSM Installation screen is shown (Usage at own risk):
-
-```
-curl -fsSL https://forcemount.auxxxilium.tech -o /root/forcemount && chmod +x /root/forcemount
-```
-```
-/root/forcemount --createpool --auto
-```
-```
-/root/forcemount --install --md /dev/md2
 ```
