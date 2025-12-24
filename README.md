@@ -35,7 +35,7 @@ Patch the following apps on your Arc or Xpenology NAS (if installed):
 - MailPlus Server (3.4.1-21569)
 - Surveillance Station (9.2.0-11289)
 - Surveillance Station (9.2.3-11755)
-- Surveillance Station (9.2.4-11880) only DVA1622 for now
+- Surveillance Station (9.2.4-11880) only Default and DVA1622 for now
 - Virtual Machine Manager (2.7.0-12229)
 
 How-to use:
