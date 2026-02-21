@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Copyright (C) 2025 AuxXxilium <https://github.com/AuxXxilium>
+# Copyright (C) 2026 AuxXxilium <https://github.com/AuxXxilium>
 #
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
 #
 
-VERSION="1.2.1"
+VERSION="1.4.0"
 
 function run_fio_test {
     local test_name=$1
@@ -38,12 +38,10 @@ function fio_summary {
             else if (val >= 1) return sprintf("%.0f MB/s", val);
             else return sprintf("%.0f KB/s", val * 1024);
         }
-        # parse an IOPS token which may include k or M suffix and return a human form
         function format_iops_token(s) {
             if (!s) return "0";
             gsub(/,/, "", s);
             num = 0 + s;
-            # if non-numeric suffix present, handle common suffixes
             if (s ~ /[kK]$/) {
                 base = substr(s, 1, length(s)-1) + 0;
                 num = base * 1000;
@@ -98,82 +96,37 @@ function fio_summary {
     ' "$file"
 }
 
-function launch_geekbench {
-    GB_VERSION=$1
+function run_igpu_benchmark {
+    local input_file=$1
+    local output_file=$2
 
-    GEEKBENCH_PATH=${HOME:-/root}/geekbench_$GB_VERSION
-    mkdir -p "$GEEKBENCH_PATH"
-
-    GB_URL=""
-    GB_CMD="geekbench6"
-    GB_RUN="true"
-
-    if command -v curl >/dev/null 2>&1; then
-        DL_CMD="curl -s"
-    else
-        DL_CMD="wget -qO-"
-    fi
-
-    if [[ $ARCH = *aarch64* || $ARCH = *arm* ]]; then
-        GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-LinuxARMPreview.tar.gz"
-    else
-        GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-Linux.tar.gz"
-    fi
-
-    if [ "$GB_RUN" = "true" ]; then
-        echo -en "\nRunning Geekbench 6 benchmark test... *cue elevator music*"
-
-        if [ ! -d "$GEEKBENCH_PATH" ]; then
-            mkdir -p "$GEEKBENCH_PATH" || { printf "Cannot create %s\n" "$GEEKBENCH_PATH" >&2; GB_RUN="false"; }
-        fi
-        if [ ! -w "$GEEKBENCH_PATH" ]; then
-            printf "Warning: %s not writable, skipping Geekbench download\n" "$GEEKBENCH_PATH" >&2
-            GB_RUN="false"
-        fi
-
-        if [ "$GB_RUN" = "true" ]; then
-            if [ -x "$GEEKBENCH_PATH/$GB_CMD" ]; then
-                GB_CMD="$GEEKBENCH_PATH/$GB_CMD"
-            else
-                $DL_CMD $GB_URL | tar xz --strip-components=1 -C "$GEEKBENCH_PATH" &>/dev/null || GB_RUN="false"
-                GB_CMD="$GEEKBENCH_PATH/$GB_CMD"
-            fi
-        fi
-
-        if [ -f "$GEEKBENCH_PATH/geekbench.license" ]; then
-            "$GB_CMD" --unlock "$(cat "$GEEKBENCH_PATH/geekbench.license")" > /dev/null 2>&1
-        fi
-
-        GEEKBENCH_TEST=$("$GB_CMD" --upload 2>/dev/null | grep "https://browser")
-
-        if [ -z "$GEEKBENCH_TEST" ]; then
-            echo -e "\r\033[0KGeekbench 6 test failed. Run manually to determine cause."
-        else
-            GEEKBENCH_URL=$(echo -e "$GEEKBENCH_TEST" | head -1 | awk '{ print $1 }')
-            GEEKBENCH_URL_CLAIM=$(echo -e "$GEEKBENCH_TEST" | tail -1 | awk '{ print $1 }')
-            sleep 10
-            GEEKBENCH_SCORES=$($DL_CMD "$GEEKBENCH_URL" | grep "div class='score'")
-
-            GEEKBENCH_SCORES_SINGLE=$(echo "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $3 }' | head -n 1)
-            GEEKBENCH_SCORES_MULTI=$(echo "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $3 }' | tail -n 1)
-
-            if [[ -n $JSON ]]; then
-                JSON_RESULT+='{"version":6,"single":'$GEEKBENCH_SCORES_SINGLE',"multi":'$GEEKBENCH_SCORES_MULTI
-                JSON_RESULT+=',"url":"'$GEEKBENCH_URL'"},'
-            fi
-
-            [ -n "$GEEKBENCH_URL_CLAIM" ] && echo -e "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
+    # Download the test file if it doesn't exist
+    if [ ! -f "$input_file" ]; then
+        echo "Test file $input_file not found. Downloading from remote source..."
+        curl -L -o "$input_file" "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4"
+        if [ $? -ne 0 ]; then
+            echo "Failed to download test file. Skipping iGPU benchmark."
+            return
         fi
     fi
+
+    # Check if ffmpeg7 exists
+    echo "Running iGPU benchmark with ffmpeg7..."
+    /usr/bin/ffmpeg7 -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$input_file" \
+        -vf 'format=nv12,hwupload' -c:v hevc_vaapi "$output_file" 2>&1 | tee /tmp/igpu_benchmark.txt
+
+    echo "iGPU Benchmark Results:" | tee -a /tmp/results.txt
+    grep -E "fps=|speed=" /tmp/igpu_benchmark.txt | tee -a /tmp/results.txt
 }
 
 printf "Arc Benchmark by AuxXxilium <https://github.com/AuxXxilium>\n\n"
-printf "This script will check your storage (FIO) and CPU (Geekbench) performance. Use at your own risk.\n\n"
+printf "This script will check your storage (FIO), CPU (Geekbench) and iGPU (FFmpeg) performance. Use at your own risk.\n\n"
 
 DEVICE="${1:-volume1}"
 GEEKBENCH_VERSION="${2:-6}"
+IGPU_BENCHMARK="${3:-n}"
 
-rm -f /tmp/results.txt /tmp/fio_*.txt
+rm -f /tmp/results.txt /tmp/fio_*.txt /tmp/igpu_benchmark.txt
 
 if [[ -t 0 ]]; then
     read -p "Enter volume path [default: $DEVICE]: " input
@@ -181,6 +134,12 @@ if [[ -t 0 ]]; then
 
     read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
     GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
+    if [ -f /var/packages/ffmpeg7/target/bin/ffmpeg ] &>/dev/null; then
+        read -p "Run iGPU benchmark (y/n) [default: y]: " input
+        IGPU_BENCHMARK="${input:-y}"
+    else
+        IGPU_BENCHMARK="n"
+    fi
 else
     printf "Using execution parameters:\n"
     printf "  Device: %s\n" "$DEVICE"
@@ -190,6 +149,7 @@ fi
 DEVICE="${DEVICE#/}"
 DISK_PATH="/$DEVICE"
 
+# System Information
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//g' | xargs)
 CORES=$(grep -c ^processor /proc/cpuinfo)
 RAM="$(free -b | awk '/Mem:/ {printf "%.1fGB", $2/1024/1024/1024}')"
@@ -217,6 +177,7 @@ SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && echo "virtual" || echo "physical"
     echo "";
 } | tee -a /tmp/results.txt
 
+# Run FIO Benchmark
 if command -v fio &>/dev/null; then
     IODEPTH=8
 
@@ -244,6 +205,14 @@ else
 fi
 printf "\n" | tee -a /tmp/results.txt
 
+# Run iGPU Benchmark
+if [ "$IGPU_BENCHMARK" == "y" ]; then
+    printf "Starting iGPU Benchmark...\n"
+    sleep 1
+    run_igpu_benchmark "/tmp/bench.mp4" "/tmp/output.mp4"
+fi
+
+# Run Geekbench Benchmark
 if [ "$GEEKBENCH_VERSION" != "6" ]; then
     echo "Skipping Geekbench as requested."
     GEEKBENCH_SCORES_SINGLE=""
