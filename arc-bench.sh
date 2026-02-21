@@ -16,25 +16,24 @@ function run_storage_test {
 
     # Check if the device was found
     if [[ -z "$device" ]]; then
-        echo "Error: Could not find the device for $volume." | tee -a /tmp/results.txt
+        printf "Error: Could not find the device for %s.\n" "$volume" | tee -a /tmp/results.txt
         return
     fi
 
     # Run hdparm to test the disk read speed
-    echo "Testing volume: $volume..." | tee -a /tmp/results.txt
+    printf "Running Storage Test...\n"
     local hdparm_output
     hdparm_output=$(hdparm -t "$device" 2>&1)
 
     # Extract the total reads and speed from the hdparm output
     local speed=$(echo "$hdparm_output" | grep -oP '=\s*\K[0-9.]+(?=\sMB/sec)')
     if [[ -z "$speed" ]]; then
-        echo "Error: Failed to extract disk read data from hdparm output for $device." | tee -a /tmp/results.txt
+        printf "Error: Failed to extract disk read data from hdparm output for %s.\n" "$device" | tee -a /tmp/results.txt
         return
     fi
 
-    echo "Storage Test Results:" | tee -a /tmp/results.txt
-    echo "Disk speed: $speed MB/sec" | tee -a /tmp/results.txt
-    echo "Storage test completed successfully." | tee -a /tmp/results.txt
+    printf "Storage Test Results:\n" | tee -a /tmp/results.txt
+    printf "  Speed: %s MB/sec\n\n" "$speed" | tee -a /tmp/results.txt
 }
 
 function run_igpu_benchmark {
@@ -43,27 +42,27 @@ function run_igpu_benchmark {
 
     # Download the test file if it doesn't exist
     if [ ! -f "$input_file" ]; then
-        echo "Test file $input_file not found. Downloading from remote source..."
+        printf "Test file %s not found. Downloading from remote source...\n" "$input_file"
         curl -L -o "$input_file" "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4"
         if [ $? -ne 0 ]; then
-            echo "Failed to download test file. Skipping iGPU benchmark." | tee -a /tmp/results.txt
+            printf "Failed to download test file. Skipping iGPU benchmark.\n" | tee -a /tmp/results.txt
             return
         fi
     fi
 
     # Check if ffmpeg7 exists
     if [[ ! -x /var/packages/ffmpeg7/target/bin/ffmpeg ]]; then
-        echo "Error: ffmpeg7 binary not found at /var/packages/ffmpeg7/target/bin/ffmpeg." | tee -a /tmp/results.txt
+        printf "Error: ffmpeg7 binary not found at /var/packages/ffmpeg7/target/bin/ffmpeg.\n" | tee -a /tmp/results.txt
         return
     fi
 
     # Run the ffmpeg command
-    echo "Running iGPU Test..."
+    printf "Running iGPU Test...\n"
     rm -f $output_file
     /var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$input_file" \
         -vf 'format=nv12,hwupload' -c:v hevc_vaapi "$output_file" > /tmp/igpu_benchmark.txt 2>&1
     if [[ $? -ne 0 ]]; then
-        echo "Error: ffmpeg command failed. Check /tmp/igpu_benchmark.txt for details." | tee -a /tmp/results.txt
+        printf "Error: ffmpeg command failed. Check /tmp/igpu_benchmark.txt for details.\n" | tee -a /tmp/results.txt
         return
     fi
 
@@ -71,13 +70,14 @@ function run_igpu_benchmark {
     local fps=$(grep "fps=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^fps=/) print $i}' | cut -d= -f2)
     local speed=$(grep "speed=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^speed=/) print $i}' | cut -d= -f2)
 
-    echo "iGPU Benchmark Results:" | tee -a /tmp/results.txt
+    printf "iGPU Benchmark Results:\n" | tee -a /tmp/results.txt
     if [[ -n "$fps" && -n "$speed" ]]; then
-        echo "iGPU fps: $fps" | tee -a /tmp/results.txt
-        echo "iGPU speed: $speed" | tee -a /tmp/results.txt
+        printf "  FPS: %s\n" "$fps" | tee -a /tmp/results.txt
+        printf "  Speed: %s\n" "$speed" | tee -a /tmp/results.txt
     else
-        echo "Error: Failed to extract iGPU Test results. Check /tmp/igpu_benchmark.txt for details." | tee -a /tmp/results.txt
+        printf "Error: Failed to extract iGPU Test results. Check /tmp/igpu_benchmark.txt for details.\n" | tee -a /tmp/results.txt
     fi
+    printf "\n" | tee -a /tmp/results.txt
 }
 
 function launch_geekbench {
@@ -103,7 +103,7 @@ function launch_geekbench {
     fi
 
     if [ "$GB_RUN" = "true" ]; then
-        echo -en "\nRunning Geekbench 6 benchmark test... *cue elevator music*"
+        printf "Running Geekbench 6 Test...\n"
 
         if [ ! -d "$GEEKBENCH_PATH" ]; then
             mkdir -p "$GEEKBENCH_PATH" || { printf "Cannot create %s\n" "$GEEKBENCH_PATH" >&2; GB_RUN="false"; }
@@ -129,10 +129,10 @@ function launch_geekbench {
         GEEKBENCH_TEST=$("$GB_CMD" --upload 2>/dev/null | grep "https://browser")
 
         if [ -z "$GEEKBENCH_TEST" ]; then
-            echo -e "\r\033[0KGeekbench 6 test failed. Run manually to determine cause."
+            printf "\r\033[0KGeekbench 6 test failed. Run manually to determine cause.\n"
         else
             GEEKBENCH_URL=$(echo -e "$GEEKBENCH_TEST" | head -1 | awk '{ print $1 }')
-            GEEKBENCH_URL_CLAIM=$(echo -e "$GEEKBENCH_TEST" | tail -1 | awk '{ print $1 }')
+            GEEKBENCH_URL_CLAIM=$(echo -e "$GEEKBENCH_TEST" | tail -n 1 | awk '{ print $1 }')
             sleep 10
             GEEKBENCH_SCORES=$($DL_CMD "$GEEKBENCH_URL" | grep "div class='score'")
 
@@ -144,12 +144,12 @@ function launch_geekbench {
                 JSON_RESULT+=',"url":"'$GEEKBENCH_URL'"},'
             fi
 
-            [ -n "$GEEKBENCH_URL_CLAIM" ] && echo -e "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
+            [ -n "$GEEKBENCH_URL_CLAIM" ] && printf "%s\n" "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
         fi
     fi
 }
 
-printf "Arc Benchmark $VERSION by AuxXxilium <https://github.com/AuxXxilium>\n\n"
+printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
 printf "This script will check your storage (hdparm), CPU (Geekbench), and iGPU (FFmpeg) performance. Use at your own risk.\n\n"
 
 DEVICE="${1:-volume1}"
@@ -190,22 +190,22 @@ MODEL="$(cat /etc.defaults/synoinfo.conf 2>/dev/null | grep "unique" | awk -F= '
 [ -z "$MODEL" ] && MODEL="Unknown" || true
 KERNEL="$(uname -r)"
 FILESYSTEM="$(df -T "$DISK_PATH" | awk 'NR==2 {print $2}')"
-[ -z "$FILESYSTEM" ] && echo "Unknown Filesystem" && exit 1 || true
-SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && echo "virtual" || echo "physical")
+[ -z "$FILESYSTEM" ] && printf "Unknown Filesystem\n" && exit 1 || true
+SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && printf "virtual" || printf "physical")
 
 {
-    printf "\nArc Benchmark %s\n\n" "$VERSION";
-    printf "System Information:\n";
-    printf "  %-20s %s\n" "CPU:"      "$CPU";
-    printf "  %-20s %s\n" "Cores:"    "$CORES";
-    printf "  %-20s %s\n" "RAM:"      "$RAM";
-    printf "  %-20s %s\n" "Loader:"   "$ARC";
-    printf "  %-20s %s\n" "Model:"    "$MODEL";
-    printf "  %-20s %s\n" "Kernel:"   "$KERNEL";
-    printf "  %-20s %s\n" "System:"   "$SYSTEM";
-    printf "  %-20s %s\n" "Disk Path:" "$DEVICE";
-    printf "  %-20s %s\n" "Filesystem:" "$FILESYSTEM";
-    echo "";
+    printf "\nArc Benchmark %s\n\n" "$VERSION"
+    printf "System Information:\n"
+    printf "  %-20s %s\n" "CPU:"      "$CPU"
+    printf "  %-20s %s\n" "Cores:"    "$CORES"
+    printf "  %-20s %s\n" "RAM:"      "$RAM"
+    printf "  %-20s %s\n" "Loader:"   "$ARC"
+    printf "  %-20s %s\n" "Model:"    "$MODEL"
+    printf "  %-20s %s\n" "Kernel:"   "$KERNEL"
+    printf "  %-20s %s\n" "System:"   "$SYSTEM"
+    printf "  %-20s %s\n" "Disk Path:" "$DEVICE"
+    printf "  %-20s %s\n" "Filesystem:" "$FILESYSTEM"
+    printf "\n"
 } | tee -a /tmp/results.txt
 
 # Run Storage Test
@@ -221,7 +221,7 @@ fi
 
 # Run Geekbench Benchmark
 if [ "$GEEKBENCH_VERSION" != "6" ]; then
-    echo "Skipping Geekbench as requested."
+    printf "Skipping Geekbench as requested.\n"
     GEEKBENCH_SCORES_SINGLE=""
     GEEKBENCH_SCORES_MULTI=""
     GEEKBENCH_URL=""
@@ -229,7 +229,7 @@ else
     printf "Starting Geekbench...\n"
     sleep 3
     launch_geekbench $GEEKBENCH_VERSION
-    printf "Geekbench $GEEKBENCH_VERSION Results:\n" | tee -a /tmp/results.txt
+    printf "Geekbench %s Results:\n" "$GEEKBENCH_VERSION" | tee -a /tmp/results.txt
     if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
         printf "  Single Core: %s\n  Multi Core:  %s\n  Full URL: %s\n" \
             "$GEEKBENCH_SCORES_SINGLE" "$GEEKBENCH_SCORES_MULTI" "$GEEKBENCH_URL" | tee -a /tmp/results.txt
@@ -238,7 +238,7 @@ else
     fi
 fi
 
-printf "All benchmarks completed.\n" | tee -a /tmp/results.txt
+printf "\nAll benchmarks completed.\n" | tee -a /tmp/results.txt
 printf "Use cat /tmp/results.txt to view the results.\n"
 
 if [ -n "${1}" ] || [ -n "${2}" ] || [ -n "${3}" ] || [ ! -f "/usr/bin/jq" ]; then
@@ -250,7 +250,7 @@ else
         read -p "Enter your username: " username
         results=$(cat /tmp/results.txt)
         [ -z "$username" ] && username="Anonymous"
-        message=$(echo -e "Benchmark from $username\n---\n$results")
+        message=$(printf "Benchmark from %s\n---\n%s" "$username" "$results")
         json_content=$(jq -nc --arg c "$message" '{content: "\n\($c)\n"}')
         response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
         if echo "$response" | grep -q '"status":"sent"'; then
