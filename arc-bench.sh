@@ -6,7 +6,97 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.4.3"
+VERSION="1.4.4"
+
+function run_fio_test {
+    local test_name=$1
+    local rw_mode=$2
+    local blocksize=$3
+    local iodepth=$4
+    local output_file=$5
+    local direct_flag=$6
+
+    printf "Running %s...\n" "$test_name"
+
+    fio --name=TEST --filename="$DISK_PATH/fio-tempfile.dat" \
+        --rw="$rw_mode" --size=16M --blocksize="$blocksize" \
+        --ioengine=libaio --fsync=0 --iodepth="$iodepth" --direct="$direct_flag" --numjobs="4" \
+        --group_reporting > "$output_file" 2>/dev/null
+    rm -f "$DISK_PATH/fio-tempfile.dat" 2>/dev/null
+}
+
+function fio_summary {
+    local file=$1
+    local test_type=$2
+    awk -v test_type="$test_type" '
+        function format_speed(val, unit) {
+            val += 0;
+            if (unit ~ /GiB\/s|GB\/s/) val *= 1024;
+            else if (unit ~ /MiB\/s|MB\/s/) val *= 1;
+            else if (unit ~ /KiB\/s|KB\/s/) val /= 1024;
+            if (val >= 1024) return sprintf("%.0f GB/s", val / 1024);
+            else if (val >= 1) return sprintf("%.0f MB/s", val);
+            else return sprintf("%.0f KB/s", val * 1024);
+        }
+        # parse an IOPS token which may include k or M suffix and return a human form
+        function format_iops_token(s) {
+            if (!s) return "0";
+            gsub(/,/, "", s);
+            num = 0 + s;
+            # if non-numeric suffix present, handle common suffixes
+            if (s ~ /[kK]$/) {
+                base = substr(s, 1, length(s)-1) + 0;
+                num = base * 1000;
+            } else if (s ~ /[mM]$/) {
+                base = substr(s, 1, length(s)-1) + 0;
+                num = base * 1000000;
+            } else {
+                num = s + 0;
+            }
+            if (num >= 1000) return int(num/1000) "k";
+            else return int(num);
+        }
+        BEGIN { found = 0; read_bw=""; write_bw="" }
+        {
+            if (test_type == "read" && /READ: bw=/) {
+                if (!found) {
+                    match($0, /READ: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
+                    if (arr[1] && arr[2]) {
+                        print "  BW: " format_speed(arr[1], arr[2]);
+                        found = 1;
+                    }
+                }
+            } else if (test_type == "write" && /WRITE: bw=/) {
+                if (!found) {
+                    match($0, /WRITE: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
+                    if (arr[1] && arr[2]) {
+                        print "  BW: " format_speed(arr[1], arr[2]);
+                        found = 1;
+                    }
+                }
+            } else if (test_type == "randread" && /read: IOPS=/) {
+                if (!found) {
+                    match($0, /read: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
+                    if (arr[1] && arr[2] && arr[3]) {
+                        print "  BW: " format_speed(arr[2], arr[3]) ", IOPS: " format_iops_token(arr[1]);
+                        found = 1;
+                    }
+                }
+            } else if (test_type == "randwrite") {
+                if (!found) {
+                    match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
+                    if (arr[1] && arr[2] && arr[3]) {
+                        print "  BW: " format_speed(arr[2], arr[3]) ", IOPS: " format_iops_token(arr[1]);
+                        found = 1;
+                    }
+                }
+            }
+        }
+        END {
+            if (!found) print "  No valid data found for " test_type " test.";
+        }
+    ' "$file"
+}
 
 function run_storage_test {
     local volume=$1
@@ -70,7 +160,7 @@ function run_igpu_benchmark {
     local fps=$(grep "fps=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^fps=/) print $i}' | cut -d= -f2)
     local speed=$(grep "speed=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^speed=/) print $i}' | cut -d= -f2)
 
-    printf "iGPU Benchmark Results:\n" | tee -a /tmp/results.txt
+    printf "iGPU Test Results:\n" | tee -a /tmp/results.txt
     if [[ -n "$fps" && -n "$speed" ]]; then
         printf "  FPS: %s\n" "$fps" | tee -a /tmp/results.txt
         printf "  Speed: %s\n" "$speed" | tee -a /tmp/results.txt
@@ -211,6 +301,29 @@ SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && printf "virtual" || printf "physi
 # Run Storage Test
 printf "Starting Storage Test...\n"
 run_storage_test "/$DEVICE"
+
+if command -v fio &>/dev/null; then
+    IODEPTH=8
+
+    printf "Starting FIO...\n"
+    sleep 3
+    run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
+    sleep 3
+    run_fio_test "Sequential Write" "write" "16M" "$IODEPTH" "/tmp/fio_write.txt" 1
+    sleep 3
+    run_fio_test "Random Read" "randread" "64k" "$IODEPTH" "/tmp/fio_randread.txt" 0
+    sleep 3
+    run_fio_test "Random Write" "randwrite" "64k" "$IODEPTH" "/tmp/fio_randwrite.txt" 1
+    sleep 3
+
+    printf "\n"
+    printf "Results:\n" | tee -a /tmp/results.txt
+    printf "  Sequential Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
+    printf "  Sequential Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
+    printf "  Random Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
+    printf "  Random Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randwrite.txt "randwrite" | tee -a /tmp/results.txt
+fi
+printf "\n" | tee -a /tmp/results.txt
 
 # Run iGPU Benchmark
 if [ "$IGPU_BENCHMARK" == "y" ]; then
