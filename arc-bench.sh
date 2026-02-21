@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.4.4"
+VERSION="1.4.5"
 
 function run_fio_test {
     local test_name=$1
@@ -38,12 +38,10 @@ function fio_summary {
             else if (val >= 1) return sprintf("%.0f MB/s", val);
             else return sprintf("%.0f KB/s", val * 1024);
         }
-        # parse an IOPS token which may include k or M suffix and return a human form
         function format_iops_token(s) {
             if (!s) return "0";
             gsub(/,/, "", s);
             num = 0 + s;
-            # if non-numeric suffix present, handle common suffixes
             if (s ~ /[kK]$/) {
                 base = substr(s, 1, length(s)-1) + 0;
                 num = base * 1000;
@@ -62,7 +60,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /READ: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2]) {
-                        print "  BW: " format_speed(arr[1], arr[2]);
+                        printf "  Sequential Read: %s\n", format_speed(arr[1], arr[2]);
                         found = 1;
                     }
                 }
@@ -70,7 +68,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /WRITE: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2]) {
-                        print "  BW: " format_speed(arr[1], arr[2]);
+                        printf "  Sequential Write: %s\n", format_speed(arr[1], arr[2]);
                         found = 1;
                     }
                 }
@@ -78,7 +76,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /read: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        print "  BW: " format_speed(arr[2], arr[3]) ", IOPS: " format_iops_token(arr[1]);
+                        printf "  Random Read: %s, IOPS: %s\n", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -86,7 +84,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        print "  BW: " format_speed(arr[2], arr[3]) ", IOPS: " format_iops_token(arr[1]);
+                        printf "  Random Write: %s, IOPS: %s\n", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -123,7 +121,7 @@ function run_storage_test {
     fi
 
     printf "Storage Test Results:\n" | tee -a /tmp/results.txt
-    printf "  Speed: %s MB/sec\n\n" "$speed" | tee -a /tmp/results.txt
+    printf "  Read Speed: %s MB/sec\n\n" "$speed" | tee -a /tmp/results.txt
 }
 
 function run_igpu_benchmark {
@@ -240,7 +238,7 @@ function launch_geekbench {
 }
 
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
-printf "This script will check your storage (hdparm), CPU (Geekbench), and iGPU (FFmpeg) performance. Use at your own risk.\n\n"
+printf "This script will check your storage (hdparm, fio), CPU (Geekbench) and iGPU (FFmpeg) performance. Use at your own risk.\n\n"
 
 DEVICE="${1:-volume1}"
 GEEKBENCH_VERSION="${2:-6}"
@@ -305,7 +303,7 @@ run_storage_test "/$DEVICE"
 if command -v fio &>/dev/null; then
     IODEPTH=8
 
-    printf "Starting FIO...\n"
+    printf "Starting Storage Test 2...\n"
     sleep 3
     run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
     sleep 3
@@ -317,7 +315,7 @@ if command -v fio &>/dev/null; then
     sleep 3
 
     printf "\n"
-    printf "Results:\n" | tee -a /tmp/results.txt
+    printf "Storage Test 2 Results:\n" | tee -a /tmp/results.txt
     printf "  Sequential Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
     printf "  Sequential Write:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
     printf "  Random Read:\n" | tee -a /tmp/results.txt; fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
