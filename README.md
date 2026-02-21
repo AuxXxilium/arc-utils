@@ -38,6 +38,9 @@ Patch the following apps on your Arc or Xpenology NAS (if installed):
 - Surveillance Station (9.2.4-11880) only Default and DVA1622 for now
 - Virtual Machine Manager (2.7.0-12229)
 
+Patch (if installed):
+- FFmpeg7 to allow full iGPU usage
+
 How-to use:
 1. Download the appinstaller script to your Arc or Xpenology NAS.
 2. Execute the script to install or activate the app.
@@ -60,6 +63,11 @@ How-to use:
 1. Download the benchmark script to your Xpenology NAS.
 2. Execute the script to run the benchmark.
 3. Follow the prompts to complete the benchmark process.
+
+Benchmark:
+- Storage (hdparm) is close to estimated performance
+- iGPU (ffmpeg7 transcoding) if installed
+- CPU (Geekbench 6)
 
 This needs to run as 'root' (Usage at own risk):
 
