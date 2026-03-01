@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.4.6"
+VERSION="1.4.7"
 
 function run_fio_test {
     local test_name=$1
@@ -133,24 +133,23 @@ function run_igpu_benchmark {
         printf "Test file %s not found. Downloading from remote source...\n" "$input_file"
         curl -L -o "$input_file" "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4"
         if [ $? -ne 0 ]; then
-            printf "Failed to download test file. Skipping iGPU benchmark.\n" | tee -a /tmp/results.txt
+            printf "Failed to download test file. Skipping iGPU benchmark.\n"
             return
         fi
     fi
 
     # Check if ffmpeg7 exists
     if [[ ! -x /var/packages/ffmpeg7/target/bin/ffmpeg ]]; then
-        printf "Error: ffmpeg7 binary not found at /var/packages/ffmpeg7/target/bin/ffmpeg.\n" | tee -a /tmp/results.txt
+        printf "Error: ffmpeg7 binary not found.\n"
         return
     fi
 
     # Run the ffmpeg command
     printf "Running iGPU Test...\n"
     rm -f $output_file
-    /var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$input_file" \
-        -vf 'format=nv12,hwupload' -c:v hevc_vaapi "$output_file" > /tmp/igpu_benchmark.txt 2>&1
+    /var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$input_file" -vf 'format=nv12,hwupload' -c:v hevc_vaapi "$output_file" > /tmp/igpu_benchmark.txt 2>&1
     if [[ $? -ne 0 ]]; then
-        printf "Error: ffmpeg command failed. Check /tmp/igpu_benchmark.txt for details.\n" | tee -a /tmp/results.txt
+        printf "Error: ffmpeg command failed.\n"
         return
     fi
 
@@ -177,17 +176,12 @@ function launch_geekbench {
     GB_URL=""
     GB_CMD="geekbench6"
     GB_RUN="true"
+    GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-Linux.tar.gz"
 
     if command -v curl >/dev/null 2>&1; then
         DL_CMD="curl -s"
     else
         DL_CMD="wget -qO-"
-    fi
-
-    if [[ $ARCH = *aarch64* || $ARCH = *arm* ]]; then
-        GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-LinuxARMPreview.tar.gz"
-    else
-        GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-Linux.tar.gz"
     fi
 
     if [ "$GB_RUN" = "true" ]; then
@@ -252,7 +246,7 @@ if [[ -t 0 ]]; then
 
     read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
     GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
-    if [ -f /var/packages/ffmpeg7/target/bin/ffmpeg ] &>/dev/null; then
+    if [[ -x /var/packages/ffmpeg7/target/bin/ffmpeg ]]; then
         read -p "Run iGPU benchmark (y/n) [default: y]: " input
         IGPU_BENCHMARK="${input:-y}"
     else
