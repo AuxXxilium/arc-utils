@@ -20,7 +20,7 @@ Install & patch or activate the following apps on your Arc or Xpenology NAS (if 
 - Active Backup for Business Office 365 (2.6.1-14214)
 - Advanced Media Extensions (4.0.0-4025)
 - MailPlus Server (3.4.1-21569)
-- Surveillance Station (9.2.3-11755)
+- Surveillance Station (9.2.3-11755, 9.2.4-11880, 9.2.5-11979)
 - Surveillance Video Extension (1.0.0-0015)
 - Virtual Machine Manager (2.7.0-12229)
 
@@ -35,11 +35,9 @@ Patch the following apps on your Arc or Xpenology NAS (if installed):
 - MailPlus Server (3.4.1-21569)
 - Surveillance Station (9.2.0-11289)
 - Surveillance Station (9.2.3-11755)
-- Surveillance Station (9.2.4-11880) only Default and DVA1622 for now
+- Surveillance Station (9.2.4-11880) only Default and DVA1622 (OpenVINO)
+- Surveillance Station (9.2.5-11979) only Default
 - Virtual Machine Manager (2.7.0-12229)
-
-Patch (if installed):
-- FFmpeg7 to allow full iGPU usage
 
 How-to use:
 1. Download the appinstaller script to your Arc or Xpenology NAS.
