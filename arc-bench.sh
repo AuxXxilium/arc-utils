@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.4.7"
+VERSION="1.5.0"
 
 function run_fio_test {
     local test_name=$1
@@ -31,12 +31,10 @@ function fio_summary {
     awk -v test_type="$test_type" '
         function format_speed(val, unit) {
             val += 0;
-            if (unit ~ /GiB\/s|GB\/s/) val *= 1024;
-            else if (unit ~ /MiB\/s|MB\/s/) val *= 1;
-            else if (unit ~ /KiB\/s|KB\/s/) val /= 1024;
-            if (val >= 1024) return sprintf("%.0f GB/s", val / 1024);
-            else if (val >= 1) return sprintf("%.0f MB/s", val);
-            else return sprintf("%.0f KB/s", val * 1024);
+            if (unit ~ /GiB\/s|GB\/s/) val *= 1024;  # Convert GiB/s or GB/s to MiB/s
+            else if (unit ~ /KiB\/s|KB\/s/) val /= 1024;  # Convert KiB/s or KB/s to MiB/s
+            # Values already in MiB/s remain unchanged
+            return sprintf("%.0f MiB/s", val);  # Always return in MiB/s
         }
         function format_iops_token(s) {
             if (!s) return "0";
@@ -109,7 +107,7 @@ function run_storage_test {
     fi
 
     # Run hdparm to test the disk read speed
-    printf "Running Storage Test...\n"
+    printf "Running Direct Storage Test...\n"
     local hdparm_output
     hdparm_output=$(hdparm -t "$device" 2>&1)
 
@@ -120,51 +118,47 @@ function run_storage_test {
         return
     fi
 
-    printf "Storage Test Results:\n" | tee -a /tmp/results.txt
-    printf "  Read Speed: %s MB/sec\n\n" "$speed" | tee -a /tmp/results.txt
+    printf "Direct Storage Test Result:\n" | tee -a /tmp/results.txt
+    printf "  Read Speed: %s MiB/s\n\n" "$speed" | tee -a /tmp/results.txt
 }
 
-function run_igpu_benchmark {
-    local input_file=$1
-    local output_file=$2
+function run_gpu_benchmark {
+    local bench_file="/tmp/bench.mp4"
+    local output_file="/tmp/output.mp4"
+    local encoder=""
 
-    # Download the test file if it doesn't exist
-    if [ ! -f "$input_file" ]; then
-        printf "Test file %s not found. Downloading from remote source...\n" "$input_file"
-        curl -L -o "$input_file" "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4"
+    if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null; then
+        encoder="h264_nvenc"  # NVIDIA encoder
+    elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
+        encoder="h264_vaapi"  # Intel VAAPI encoder
+    elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
+        encoder="h264_amf"  # AMD AMF encoder
+    else
+        printf "No compatible GPU detected. Skipping GPU benchmark.\n"
+        return
+    fi
+
+    if [ ! -f "$bench_file" ]; then
+        printf "Downloading bench.mp4...\n"
+        curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file"
         if [ $? -ne 0 ]; then
-            printf "Failed to download test file. Skipping iGPU benchmark.\n"
+            printf "Failed to download bench.mp4. Skipping GPU benchmark.\n"
             return
         fi
     fi
 
-    # Check if ffmpeg7 exists
-    if [[ ! -x /var/packages/ffmpeg7/target/bin/ffmpeg ]]; then
-        printf "Error: ffmpeg7 binary not found.\n"
-        return
-    fi
+    printf "Running GPU Benchmark...\n"
+    local ffmpeg_output
+    ffmpeg_output=$(/var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$bench_file" \
+        -vf 'format=nv12,hwupload' -c:v "$encoder" -y "$output_file" 2>&1)
 
-    # Run the ffmpeg command
-    printf "Running iGPU Test...\n"
-    rm -f $output_file
-    /var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$input_file" -vf 'format=nv12,hwupload' -c:v hevc_vaapi "$output_file" > /tmp/igpu_benchmark.txt 2>&1
-    if [[ $? -ne 0 ]]; then
-        printf "Error: ffmpeg command failed.\n"
-        return
-    fi
-
-    # Extract the last fps and speed from the ffmpeg output
-    local fps=$(grep "fps=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^fps=/) print $i}' | cut -d= -f2)
-    local speed=$(grep "speed=" /tmp/igpu_benchmark.txt | tail -n 1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^speed=/) print $i}' | cut -d= -f2)
-
-    printf "iGPU Test Results:\n" | tee -a /tmp/results.txt
-    if [[ -n "$fps" && -n "$speed" ]]; then
-        printf "  FPS: %s\n" "$fps" | tee -a /tmp/results.txt
-        printf "  Speed: %s\n" "$speed" | tee -a /tmp/results.txt
+    # Extract the final speed value from ffmpeg output
+    local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
+    if [ -n "$speed" ]; then
+        printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
     else
-        printf "Error: Failed to extract iGPU Test results. Check /tmp/igpu_benchmark.txt for details.\n" | tee -a /tmp/results.txt
+        printf "GPU Benchmark failed.\n" | tee -a /tmp/results.txt
     fi
-    printf "\n" | tee -a /tmp/results.txt
 }
 
 function launch_geekbench {
@@ -232,7 +226,7 @@ function launch_geekbench {
 }
 
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
-printf "This script will check your storage (hdparm, fio), CPU (Geekbench) and iGPU (FFmpeg) performance. Use at your own risk.\n\n"
+printf "This script will check your storage (hdparm, fio), CPU (Geekbench) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
 
 DEVICE="${1:-volume1}"
 GEEKBENCH_VERSION="${2:-6}"
@@ -246,17 +240,24 @@ if [[ -t 0 ]]; then
 
     read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
     GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
-    if [[ -x /var/packages/ffmpeg7/target/bin/ffmpeg ]]; then
-        read -p "Run iGPU benchmark (y/n) [default: y]: " input
-        IGPU_BENCHMARK="${input:-y}"
+    if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
+        if command -v /var/packages/ffmpeg7/target/bin/ffmpeg &>/dev/null; then
+            printf "Compatible GPU detected and FFmpeg7 found.\n"
+            read -p "Run GPU benchmark (y/n) [default: y]: " input
+            IGPU_BENCHMARK="${input:-y}"
+        else
+            printf "Compatible GPU detected but FFmpeg7 not found.\n"
+            IGPU_BENCHMARK="n"
+        fi
     else
+        printf "No compatible GPU detected.\n"
         IGPU_BENCHMARK="n"
     fi
 else
     printf "Using execution parameters:\n"
     printf "  Device: %s\n" "$DEVICE"
     printf "  Geekbench: %s\n" "$GEEKBENCH_VERSION"
-    printf "  iGPU Benchmark: %s\n" "$IGPU_BENCHMARK"
+    printf "  GPU Benchmark: %s\n" "$IGPU_BENCHMARK"
 fi
 
 DEVICE="${DEVICE#/}"
@@ -297,7 +298,7 @@ run_storage_test "/$DEVICE"
 if command -v fio &>/dev/null; then
     IODEPTH=8
 
-    printf "Starting Storage Test 2...\n"
+    printf "Starting Storage Test...\n"
     sleep 3
     run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
     sleep 3
@@ -309,7 +310,7 @@ if command -v fio &>/dev/null; then
     sleep 3
 
     printf "\n"
-    printf "Storage Test 2 Results:\n" | tee -a /tmp/results.txt
+    printf "Storage Test Results:\n" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
@@ -317,11 +318,11 @@ if command -v fio &>/dev/null; then
 fi
 printf "\n" | tee -a /tmp/results.txt
 
-# Run iGPU Benchmark
+# Run GPU Benchmark
 if [ "$IGPU_BENCHMARK" == "y" ]; then
-    printf "Starting iGPU Test...\n"
+    printf "Starting GPU Test...\n"
     sleep 1
-    run_igpu_benchmark "/tmp/bench.mp4" "/tmp/output.mp4"
+    run_gpu_benchmark "/tmp/bench.mp4" "/tmp/output.mp4"
 fi
 
 # Run Geekbench Benchmark
