@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.5.0"
+VERSION="1.5.1"
 
 function run_fio_test {
     local test_name=$1
@@ -129,15 +129,21 @@ function run_gpu_benchmark {
 
     if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null; then
         encoder="h264_nvenc"  # NVIDIA encoder
+        hwaccel="nvdec"        # NVIDIA hardware acceleration
+        device=""             # No VAAPI device needed for NVIDIA
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
         encoder="h264_vaapi"  # Intel VAAPI encoder
+        hwaccel="vaapi"       # Intel hardware acceleration
+        device="-vaapi_device /dev/dri/renderD128"
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
-        encoder="h264_amf"  # AMD AMF encoder
+        encoder="h264_vaapi"  # AMD VAAPI encoder
+        hwaccel="vaapi"       # AMD hardware acceleration
+        device="-vaapi_device /dev/dri/renderD128"
     else
         printf "No compatible GPU detected. Skipping GPU benchmark.\n"
         return
     fi
-
+    
     if [ ! -f "$bench_file" ]; then
         printf "Downloading bench.mp4...\n"
         curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file"
@@ -146,12 +152,12 @@ function run_gpu_benchmark {
             return
         fi
     fi
-
+    
     printf "Running GPU Benchmark...\n"
     local ffmpeg_output
-    ffmpeg_output=$(/var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i "$bench_file" \
+    ffmpeg_output=$(/var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel "$hwaccel" $device -i "$bench_file" \
         -vf 'format=nv12,hwupload' -c:v "$encoder" -y "$output_file" 2>&1)
-
+    
     # Extract the final speed value from ffmpeg output
     local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
     if [ -n "$speed" ]; then
@@ -228,36 +234,27 @@ function launch_geekbench {
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
 printf "This script will check your storage (hdparm, fio), CPU (Geekbench) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
 
-DEVICE="${1:-volume1}"
-GEEKBENCH_VERSION="${2:-6}"
-IGPU_BENCHMARK="${3:-n}"
-
 rm -f /tmp/results.txt /tmp/igpu_benchmark.txt
 
-if [[ -t 0 ]]; then
-    read -p "Enter volume path [default: $DEVICE]: " input
-    DEVICE="${input:-$DEVICE}"
+DEVICE="/volume1"  # Default volume path
+GEEKBENCH_VERSION="6"  # Default Geekbench version
+read -p "Enter volume path [default: $DEVICE]: " input
+DEVICE="${input:-$DEVICE}"
 
-    read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
-    GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
-    if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
-        if command -v /var/packages/ffmpeg7/target/bin/ffmpeg &>/dev/null; then
-            printf "Compatible GPU detected and FFmpeg7 found.\n"
-            read -p "Run GPU benchmark (y/n) [default: y]: " input
-            IGPU_BENCHMARK="${input:-y}"
-        else
-            printf "Compatible GPU detected but FFmpeg7 not found.\n"
-            IGPU_BENCHMARK="n"
-        fi
+read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
+GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
+if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
+    if command -v /var/packages/ffmpeg7/target/bin/ffmpeg &>/dev/null; then
+        printf "Compatible GPU detected and FFmpeg7 found.\n"
+        read -p "Run GPU benchmark (y/n) [default: y]: " input
+        IGPU_BENCHMARK="${input:-y}"
     else
-        printf "No compatible GPU detected.\n"
+        printf "Compatible GPU detected but FFmpeg7 not found.\n"
         IGPU_BENCHMARK="n"
     fi
 else
-    printf "Using execution parameters:\n"
-    printf "  Device: %s\n" "$DEVICE"
-    printf "  Geekbench: %s\n" "$GEEKBENCH_VERSION"
-    printf "  GPU Benchmark: %s\n" "$IGPU_BENCHMARK"
+    printf "No compatible GPU detected.\n"
+    IGPU_BENCHMARK="n"
 fi
 
 DEVICE="${DEVICE#/}"
