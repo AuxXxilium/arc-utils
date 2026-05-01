@@ -63,9 +63,10 @@ How-to use:
 3. Follow the prompts to complete the benchmark process.
 
 Benchmark:
-- Storage (hdparm) is close to estimated performance
-- iGPU (ffmpeg7 transcoding) if installed
-- CPU (Geekbench 6)
+- Storage read speed test using hdparm for quick disk performance estimation
+- Storage I/O performance test using fio across multiple read/write scenarios
+- Hardware transcoding performance test using ffmpeg7 (if iGPU/GPU is available)
+- CPU performance test using Geekbench 6
 
 This needs to run as 'root' (Usage at own risk):
 
