@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.5.1"
+VERSION="1.6.0"
 
 function run_fio_test {
     local test_name=$1
@@ -118,8 +118,9 @@ function run_storage_test {
         return
     fi
 
+    printf "\n"
     printf "Direct Storage Test Result:\n" | tee -a /tmp/results.txt
-    printf "  Read Speed: %s MiB/s\n\n" "$speed" | tee -a /tmp/results.txt
+    printf "  Read Speed: %s MiB/s\n" "$speed" | tee -a /tmp/results.txt
 }
 
 function run_gpu_benchmark {
@@ -161,92 +162,93 @@ function run_gpu_benchmark {
     # Extract the final speed value from ffmpeg output
     local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
     if [ -n "$speed" ]; then
+        printf "\n" | tee -a /tmp/results.txt
         printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
     else
         printf "GPU Benchmark failed.\n" | tee -a /tmp/results.txt
     fi
 }
 
-function launch_geekbench {
-    GB_VERSION=$1
-
-    GEEKBENCH_PATH=${HOME:-/root}/geekbench_$GB_VERSION
-    mkdir -p "$GEEKBENCH_PATH"
-
-    GB_URL=""
-    GB_CMD="geekbench6"
-    GB_RUN="true"
-    GB_URL="https://cdn.geekbench.com/Geekbench-6.4.0-Linux.tar.gz"
-
-    if command -v curl >/dev/null 2>&1; then
-        DL_CMD="curl -s"
+function run_cpu_benchmark {
+    printf "Running CPU benchmark...\n"
+    
+    # Get number of CPU cores
+    CORES=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
+    
+    # Single-core test: CPU intensive calculation
+    printf "Running single-core test...\n"
+    SINGLE_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    
+    # Perform CPU-intensive calculations
+    i=0
+    while [ $i -lt 500000 ]; do
+        result=$((i * i * i / (i + 1)))
+        i=$((i + 1))
+    done
+    
+    SINGLE_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    SINGLE_TIME=$(( (SINGLE_END - SINGLE_START) / 1000000 ))  # Convert to milliseconds
+    
+    # Multi-core test: Run parallel processes
+    printf "Running multi-core test (%s cores)...\n" "$CORES"
+    MULTI_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    
+    # Launch background processes for each core
+    pids=""
+    for core in $(seq 1 $CORES); do
+        (
+            i=0
+            while [ $i -lt 500000 ]; do
+                result=$((i * i * i / (i + 1)))
+                i=$((i + 1))
+            done
+        ) &
+        pids="$pids $!"
+    done
+    
+    # Wait for all processes to complete
+    for pid in $pids; do
+        wait $pid 2>/dev/null
+    done
+    
+    MULTI_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    MULTI_TIME=$(( (MULTI_END - MULTI_START) / 1000000 ))  # Convert to milliseconds
+    
+    # Calculate scores (lower time = higher score)
+    # Base score of 1000, adjusted by time taken
+    if [ $SINGLE_TIME -gt 0 ] && [ $MULTI_TIME -gt 0 ]; then
+        # Calculate relative performance scores
+        CPU_SCORE_SINGLE=$((10000000 / SINGLE_TIME))
+        CPU_SCORE_MULTI=$((10000000 * CORES / MULTI_TIME))
+        return 0
     else
-        DL_CMD="wget -qO-"
-    fi
-
-    if [ "$GB_RUN" = "true" ]; then
-        printf "Running Geekbench 6 Test...\n"
-
-        if [ ! -d "$GEEKBENCH_PATH" ]; then
-            mkdir -p "$GEEKBENCH_PATH" || { printf "Cannot create %s\n" "$GEEKBENCH_PATH" >&2; GB_RUN="false"; }
-        fi
-        if [ ! -w "$GEEKBENCH_PATH" ]; then
-            printf "Warning: %s not writable, skipping Geekbench download\n" "$GEEKBENCH_PATH" >&2
-            GB_RUN="false"
-        fi
-
-        if [ "$GB_RUN" = "true" ]; then
-            if [ -x "$GEEKBENCH_PATH/$GB_CMD" ]; then
-                GB_CMD="$GEEKBENCH_PATH/$GB_CMD"
-            else
-                $DL_CMD $GB_URL | tar xz --strip-components=1 -C "$GEEKBENCH_PATH" &>/dev/null || GB_RUN="false"
-                GB_CMD="$GEEKBENCH_PATH/$GB_CMD"
-            fi
-        fi
-
-        if [ -f "$GEEKBENCH_PATH/geekbench.license" ]; then
-            "$GB_CMD" --unlock "$(cat "$GEEKBENCH_PATH/geekbench.license")" > /dev/null 2>&1
-        fi
-
-        GEEKBENCH_TEST=$("$GB_CMD" --upload 2>/dev/null | grep "https://browser")
-
-        if [ -z "$GEEKBENCH_TEST" ]; then
-            printf "\r\033[0KGeekbench 6 test failed. Run manually to determine cause.\n"
-        else
-            GEEKBENCH_URL=$(echo -e "$GEEKBENCH_TEST" | head -1 | awk '{ print $1 }')
-            GEEKBENCH_URL_CLAIM=$(echo -e "$GEEKBENCH_TEST" | tail -n 1 | awk '{ print $1 }')
-            sleep 10
-            GEEKBENCH_SCORES=$($DL_CMD "$GEEKBENCH_URL" | grep "div class='score'")
-
-            GEEKBENCH_SCORES_SINGLE=$(echo "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $3 }' | head -n 1)
-            GEEKBENCH_SCORES_MULTI=$(echo "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $3 }' | tail -n 1)
-
-            if [[ -n $JSON ]]; then
-                JSON_RESULT+='{"version":6,"single":'$GEEKBENCH_SCORES_SINGLE',"multi":'$GEEKBENCH_SCORES_MULTI
-                JSON_RESULT+=',"url":"'$GEEKBENCH_URL'"},'
-            fi
-
-            [ -n "$GEEKBENCH_URL_CLAIM" ] && printf "%s\n" "$GEEKBENCH_URL_CLAIM" >> geekbench_claim.url 2> /dev/null
-        fi
+        printf "Error: Benchmark timing failed\n"
+        return 1
     fi
 }
 
+function launch_cpu_benchmark {
+    # Simple wrapper to run CPU benchmark
+    run_cpu_benchmark
+    return $?
+}
+
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
-printf "This script will check your storage (hdparm, fio), CPU (Geekbench) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
+printf "This script will check your storage (hdparm, fio), CPU (local benchmark) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
 
 rm -f /tmp/results.txt /tmp/igpu_benchmark.txt
 
 DEVICE="/volume1"  # Default volume path
-GEEKBENCH_VERSION="6"  # Default Geekbench version
+CPU_BENCH="y"  # Default CPU benchmark setting
 read -p "Enter volume path [default: $DEVICE]: " input
 DEVICE="${input:-$DEVICE}"
 
-read -p "Run Geekbench (6 or s to skip) [default: $GEEKBENCH_VERSION]: " input
-GEEKBENCH_VERSION="${input:-$GEEKBENCH_VERSION}"
+read -p "Run CPU benchmark (y or n to skip) [default: y]: " input
+CPU_BENCH="${input:-$CPU_BENCH}"
 if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
     if command -v /var/packages/ffmpeg7/target/bin/ffmpeg &>/dev/null; then
         printf "Compatible GPU detected and FFmpeg7 found.\n"
-        read -p "Run GPU benchmark (y/n) [default: y]: " input
+        read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
         IGPU_BENCHMARK="${input:-y}"
     else
         printf "Compatible GPU detected but FFmpeg7 not found.\n"
@@ -295,7 +297,7 @@ run_storage_test "/$DEVICE"
 if command -v fio &>/dev/null; then
     IODEPTH=8
 
-    printf "Starting Storage Test...\n"
+    printf "\nStarting Storage Test...\n"
     sleep 3
     run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
     sleep 3
@@ -306,42 +308,41 @@ if command -v fio &>/dev/null; then
     run_fio_test "Random Write" "randwrite" "64k" "$IODEPTH" "/tmp/fio_randwrite.txt" 1
     sleep 3
 
-    printf "\n"
+    printf "\n" | tee -a /tmp/results.txt
     printf "Storage Test Results:\n" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
     fio_summary /tmp/fio_randwrite.txt "randwrite" | tee -a /tmp/results.txt
 fi
-printf "\n" | tee -a /tmp/results.txt
 
 # Run GPU Benchmark
 if [ "$IGPU_BENCHMARK" == "y" ]; then
-    printf "Starting GPU Test...\n"
+    printf "\nStarting GPU Test...\n"
     sleep 1
     run_gpu_benchmark "/tmp/bench.mp4" "/tmp/output.mp4"
 fi
 
-# Run Geekbench Benchmark
-if [ "$GEEKBENCH_VERSION" != "6" ]; then
-    printf "Skipping Geekbench as requested.\n"
-    GEEKBENCH_SCORES_SINGLE=""
-    GEEKBENCH_SCORES_MULTI=""
-    GEEKBENCH_URL=""
+# Run CPU Benchmark
+if [ "$CPU_BENCH" != "y" ] && [ "$CPU_BENCH" != "Y" ]; then
+    printf "Skipping CPU benchmark as requested.\n"
+    CPU_SCORE_SINGLE=""
+    CPU_SCORE_MULTI=""
 else
-    printf "Starting Geekbench...\n"
-    sleep 3
-    launch_geekbench $GEEKBENCH_VERSION
-    printf "Geekbench %s Results:\n" "$GEEKBENCH_VERSION" | tee -a /tmp/results.txt
-    if [[ -n $GEEKBENCH_SCORES_SINGLE && -n $GEEKBENCH_SCORES_MULTI ]]; then
-        printf "  Single Core: %s\n  Multi Core:  %s\n  Full URL: %s\n" \
-            "$GEEKBENCH_SCORES_SINGLE" "$GEEKBENCH_SCORES_MULTI" "$GEEKBENCH_URL" | tee -a /tmp/results.txt
+    printf "\nStarting CPU benchmark...\n"
+    sleep 2
+    launch_cpu_benchmark
+    printf "\n" | tee -a /tmp/results.txt
+    printf "CPU Benchmark Results:\n" | tee -a /tmp/results.txt
+    if [[ -n $CPU_SCORE_SINGLE && -n $CPU_SCORE_MULTI ]]; then
+        printf "  Single Core: %s\n  Multi Core:  %s\n" \
+            "$CPU_SCORE_SINGLE" "$CPU_SCORE_MULTI" | tee -a /tmp/results.txt
     else
-        printf "Geekbench failed or not run.\n"
+        printf "CPU benchmark failed or not run.\n" | tee -a /tmp/results.txt
     fi
 fi
 
-printf "\nAll benchmarks completed.\n" | tee -a /tmp/results.txt
+printf "\nAll benchmarks completed.\n"
 printf "Use cat /tmp/results.txt to view the results.\n"
 
 if [ -n "${1}" ] || [ -n "${2}" ] || [ -n "${3}" ] || [ ! -f "/usr/bin/jq" ]; then
