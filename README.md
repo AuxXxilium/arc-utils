@@ -66,7 +66,7 @@ Benchmark:
 - Storage read speed test using hdparm for quick disk performance estimation
 - Storage I/O performance test using fio across multiple read/write scenarios
 - Hardware transcoding performance test using ffmpeg7 (if iGPU/GPU is available)
-- CPU performance test using Geekbench 6
+- CPU performance test using local cpu benchmark solution
 
 This needs to run as 'root' (Usage at own risk):
 
