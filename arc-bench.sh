@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.0"
+VERSION="1.6.1"
 
 function run_fio_test {
     local test_name=$1
@@ -127,19 +127,42 @@ function run_gpu_benchmark {
     local bench_file="/tmp/bench.mp4"
     local output_file="/tmp/output.mp4"
     local encoder=""
+    local ffmpeg_cmd=""
+    local ffmpeg_bin="/var/packages/ffmpeg8/target/bin/ffmpeg"
 
+    # Check available encoders
+    local has_nvenc=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_nvenc" && echo "yes" || echo "no")
+    local has_qsv=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_qsv" && echo "yes" || echo "no")
+    local has_vaapi=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_vaapi" && echo "yes" || echo "no")
+
+    # Detect GPU and select encoder
     if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null; then
-        encoder="h264_nvenc"  # NVIDIA encoder
-        hwaccel="nvdec"        # NVIDIA hardware acceleration
-        device=""             # No VAAPI device needed for NVIDIA
+        if [ "$has_nvenc" = "yes" ]; then
+            encoder="h264_nvenc"
+            ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -y $output_file"
+        else
+            printf "NVIDIA GPU detected but NVENC not available in FFmpeg.\n" | tee -a /tmp/results.txt
+            return
+        fi
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
-        encoder="h264_vaapi"  # Intel VAAPI encoder
-        hwaccel="vaapi"       # Intel hardware acceleration
-        device="-vaapi_device /dev/dri/renderD128"
+        if [ "$has_qsv" = "yes" ]; then
+            encoder="h264_qsv"
+            ffmpeg_cmd="-hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -y $output_file"
+        elif [ "$has_vaapi" = "yes" ]; then
+            encoder="h264_vaapi"
+            ffmpeg_cmd="-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i $bench_file -vf 'format=nv12|vaapi,hwupload' -c:v h264_vaapi -y $output_file"
+        else
+            printf "Intel GPU detected but no hardware encoder available in FFmpeg.\n" | tee -a /tmp/results.txt
+            return
+        fi
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
-        encoder="h264_vaapi"  # AMD VAAPI encoder
-        hwaccel="vaapi"       # AMD hardware acceleration
-        device="-vaapi_device /dev/dri/renderD128"
+        if [ "$has_vaapi" = "yes" ]; then
+            encoder="h264_vaapi"
+            ffmpeg_cmd="-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i $bench_file -vf 'format=nv12|vaapi,hwupload' -c:v h264_vaapi -y $output_file"
+        else
+            printf "AMD GPU detected but VAAPI not available in FFmpeg.\n" | tee -a /tmp/results.txt
+            return
+        fi
     else
         printf "No compatible GPU detected. Skipping GPU benchmark.\n"
         return
@@ -154,10 +177,9 @@ function run_gpu_benchmark {
         fi
     fi
     
-    printf "Running GPU Benchmark...\n"
+    printf "Running GPU Benchmark with %s...\n" "$encoder"
     local ffmpeg_output
-    ffmpeg_output=$(/var/packages/ffmpeg7/target/bin/ffmpeg -hwaccel "$hwaccel" $device -i "$bench_file" \
-        -vf 'format=nv12,hwupload' -c:v "$encoder" -y "$output_file" 2>&1)
+    ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
     
     # Extract the final speed value from ffmpeg output
     local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
@@ -166,6 +188,7 @@ function run_gpu_benchmark {
         printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
     else
         printf "GPU Benchmark failed.\n" | tee -a /tmp/results.txt
+        printf "Error output:\n%s\n" "$ffmpeg_output" >> /tmp/gpu_bench_error.log
     fi
 }
 
@@ -246,12 +269,12 @@ DEVICE="${input:-$DEVICE}"
 read -p "Run CPU benchmark (y or n to skip) [default: y]: " input
 CPU_BENCH="${input:-$CPU_BENCH}"
 if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
-    if command -v /var/packages/ffmpeg7/target/bin/ffmpeg &>/dev/null; then
-        printf "Compatible GPU detected and FFmpeg7 found.\n"
+    if command -v /var/packages/ffmpeg8/target/bin/ffmpeg &>/dev/null; then
+        printf "Compatible GPU detected and FFmpeg8 found.\n"
         read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
         IGPU_BENCHMARK="${input:-y}"
     else
-        printf "Compatible GPU detected but FFmpeg7 not found.\n"
+        printf "Compatible GPU detected but FFmpeg8 not found.\n"
         IGPU_BENCHMARK="n"
     fi
 else
