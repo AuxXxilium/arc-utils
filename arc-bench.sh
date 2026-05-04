@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.1"
+VERSION="1.6.2"
 
 function run_fio_test {
     local test_name=$1
@@ -298,11 +298,25 @@ FILESYSTEM="$(df -T "$DISK_PATH" | awk 'NR==2 {print $2}')"
 [ -z "$FILESYSTEM" ] && printf "Unknown Filesystem\n" && exit 1 || true
 SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && printf "virtual" || printf "physical")
 
+# Detect GPU
+GPU_MODEL=""
+if lspci -d ::300 2>/dev/null | grep -qi "NVIDIA"; then
+    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "NVIDIA" | sed 's/.*NVIDIA Corporation //' | sed 's/ (rev.*//' | head -1)
+    [ -n "$GPU_MODEL" ] && GPU_MODEL="NVIDIA $GPU_MODEL"
+elif lspci -d ::300 2>/dev/null | grep -qi "Intel.*Graphics\|Intel Corporation.*Display"; then
+    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "Intel" | sed 's/.*Intel Corporation //' | sed 's/ (rev.*//' | head -1)
+    [ -n "$GPU_MODEL" ] && GPU_MODEL="Intel $GPU_MODEL"
+elif lspci -d ::300 2>/dev/null | grep -qi "AMD\|Advanced Micro Devices"; then
+    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "AMD\|Advanced Micro Devices" | sed 's/.*Advanced Micro Devices.*\[AMD\/ATI\] //' | sed 's/ (rev.*//' | head -1)
+    [ -n "$GPU_MODEL" ] && GPU_MODEL="AMD $GPU_MODEL"
+fi
+
 {
     printf "\nArc Benchmark %s\n\n" "$VERSION"
     printf "System Information:\n"
     printf "  %-20s %s\n" "CPU:"      "$CPU"
     printf "  %-20s %s\n" "Cores:"    "$CORES"
+    [ -n "$GPU_MODEL" ] && printf "  %-20s %s\n" "GPU:" "$GPU_MODEL"
     printf "  %-20s %s\n" "RAM:"      "$RAM"
     printf "  %-20s %s\n" "Loader:"   "$ARC"
     printf "  %-20s %s\n" "Model:"    "$MODEL"
