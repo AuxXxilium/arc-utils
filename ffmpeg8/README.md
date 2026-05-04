@@ -91,15 +91,15 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 
 - **GitHub:** https://github.com/AuxXxilium
 - **Website:** https://auxxxilium.tech
-- **Issues:** Report bugs via Discord (Community)
+- **Issues:** Report bugs via [Discord (Community)](https://community.xpenology.tech)
 
 ---
 
 ## License
 
-FFmpeg is licensed under the **GNU GPL v3** (with optional non-free codecs enabled).
+FFmpeg is licensed under the **GNU GPL v3** (with optional codecs enabled).
 
 This package includes:
-- **GPL libraries:** x264, x265, fdk-aac (with --enable-nonfree)
+- **GPL libraries:** x264, x265, fdk-aac
 - **LGPL libraries:** Most other components
 - **Non-free:** NVIDIA NVENC/CUVID support

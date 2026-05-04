@@ -65,7 +65,7 @@ How-to use:
 Benchmark:
 - Storage read speed test using hdparm for quick disk performance estimation
 - Storage I/O performance test using fio across multiple read/write scenarios
-- Hardware transcoding performance test using ffmpeg8 (if iGPU/GPU is available)
+- Hardware transcoding performance test using [FFmpeg 8](./ffmpeg8) (if iGPU/GPU is available)
 - CPU performance test using local cpu benchmark solution
 
 This needs to run as 'root' (Usage at own risk):
@@ -76,6 +76,22 @@ curl -fsSL https://bench.xpenology.tech -o /root/bench.sh && chmod +x /root/benc
 ```
 /root/bench.sh
 ```
+
+---
+
+## FFmpeg 8
+
+Complete audio/video solution with hardware acceleration support for Synology DSM.
+
+Features:
+- NVIDIA NVENC/NVDEC hardware acceleration
+- Intel Quick Sync Video (QSV)
+- VAAPI support
+- Vulkan and OpenCL acceleration
+- High-performance video encoding/decoding for transcoding and streaming
+
+For build instructions and installation details, see the [FFmpeg 8](./ffmpeg8).
+
 
 ---
 
