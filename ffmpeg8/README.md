@@ -9,6 +9,8 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 **Architecture:** x64-7.2 (apollolake, broadwell, denverton and compatible)  
 **Build System:** spksrc (SynoCommunity framework)
 
+![FFmpeg 8 Commandline](dsm-screen.png)
+
 ---
 
 ## Hardware Acceleration Features
@@ -72,19 +74,16 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 ## Known Limitations
 
 1. **NVIDIA Support**
-   - Requires manual NVIDIA driver installation
-   - Driver must be 550.54.14+ for nv-codec-headers 12.2.72.0
-   - Not supported on official Synology units (custom builds only)
+   - Requires manual NVIDIA community driver installation
+   - Driver must be 550.54.14+
 
 2. **Intel QSV**
    - Requires recent Intel CPU (6th gen+)
    - Some older Synology models have limited QSV features
-   - Media SDK must be properly configured
 
 3. **AMD VAAPI**
    - Limited support on Synology hardware
    - Requires proper AMD GPU driver installation
-   - Performance varies by GPU model
 
 ---
 
@@ -104,30 +103,3 @@ This package includes:
 - **GPL libraries:** x264, x265, fdk-aac (with --enable-nonfree)
 - **LGPL libraries:** Most other components
 - **Non-free:** NVIDIA NVENC/CUVID support
-
----
-
-## Build Information
-
-**Compiler:** GCC 12.2.0  
-**Toolchain:** spksrc x86_64-pc-linux-gnu  
-**Build Date:** 2026-05-03  
-**spksrc Version:** th0ma7/spksrc:ffmpeg8 branch  
-**Custom Modifications:**
-- NVIDIA nv-codec-headers 12.2.72.0 (driver 550+ compatible)
-- Intel Media SDK integration
-- Optimized build flags (-O3, LTO)
-- MAINTAINER customization
-
----
-
-## Changelog
-
-### Version 8.1-1
-- Initial release based on FFmpeg 8.1
-- NVIDIA NVENC support (API 12.2, driver 550+)
-- Intel Quick Sync Video (libmfx)
-- VAAPI support for Intel/AMD
-- Vulkan and OpenCL acceleration
-- Comprehensive codec support
-- Built with GCC 12.2.0 optimizations
