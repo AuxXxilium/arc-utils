@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.2"
+VERSION="1.6.3"
 
 function run_fio_test {
     local test_name=$1
@@ -145,12 +145,9 @@ function run_gpu_benchmark {
             return
         fi
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
-        if [ "$has_qsv" = "yes" ]; then
-            encoder="h264_qsv"
-            ffmpeg_cmd="-hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -y $output_file"
-        elif [ "$has_vaapi" = "yes" ]; then
+        if [ "$has_vaapi" = "yes" ]; then
             encoder="h264_vaapi"
-            ffmpeg_cmd="-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i $bench_file -vf 'format=nv12|vaapi,hwupload' -c:v h264_vaapi -y $output_file"
+            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -y $output_file"
         else
             printf "Intel GPU detected but no hardware encoder available in FFmpeg.\n" | tee -a /tmp/results.txt
             return
@@ -158,7 +155,7 @@ function run_gpu_benchmark {
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
         if [ "$has_vaapi" = "yes" ]; then
             encoder="h264_vaapi"
-            ffmpeg_cmd="-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i $bench_file -vf 'format=nv12|vaapi,hwupload' -c:v h264_vaapi -y $output_file"
+            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -y $output_file"
         else
             printf "AMD GPU detected but VAAPI not available in FFmpeg.\n" | tee -a /tmp/results.txt
             return
