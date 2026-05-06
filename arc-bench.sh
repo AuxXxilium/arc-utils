@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.5"
+VERSION="1.6.6"
 
 function run_fio_test {
     local test_name=$1
@@ -203,26 +203,15 @@ function run_gpu_benchmark {
         fi
     else
         printf "\n" | tee -a /tmp/results.txt
-        if [ "$first_encoder" != "$encoder" ]; then
-            printf "GPU Benchmark failed (tried %s and %s fallback).\n" "$first_encoder" "$encoder" | tee -a /tmp/results.txt
-        else
-            printf "GPU Benchmark failed with %s.\n" "$encoder" | tee -a /tmp/results.txt
-        fi
-        # Extract specific error from ffmpeg output
-        local error_msg=$(echo "$ffmpeg_output" | grep -i "error\|failed\|cannot" | head -n 3)
-        if [ -n "$error_msg" ]; then
-            printf "Error: %s\n" "$error_msg" | tee -a /tmp/results.txt
-        fi
-        printf "\nFull error output saved to /tmp/gpu_bench_error.log\n" | tee -a /tmp/results.txt
-        printf "Error output:\n%s\n" "$ffmpeg_output" >> /tmp/gpu_bench_error.log
+        printf "GPU Benchmark not possible.\n" | tee -a /tmp/results.txt
     fi
 }
 
 function run_cpu_benchmark {
     printf "Running CPU benchmark...\n"
     
-    # Get number of CPU cores
-    CORES=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
+    # Get number of logical processors (threads)
+    THREADS=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
     
     # Single-core test: CPU intensive calculation
     printf "Running single-core test...\n"
@@ -239,12 +228,12 @@ function run_cpu_benchmark {
     SINGLE_TIME=$(( (SINGLE_END - SINGLE_START) / 1000000 ))  # Convert to milliseconds
     
     # Multi-core test: Run parallel processes
-    printf "Running multi-core test (%s cores)...\n" "$CORES"
+    printf "Running multi-core test (%s threads)...\n" "$THREADS"
     MULTI_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     
-    # Launch background processes for each core
+    # Launch background processes for each thread
     pids=""
-    for core in $(seq 1 $CORES); do
+    for core in $(seq 1 $THREADS); do
         (
             i=0
             while [ $i -lt 500000 ]; do
@@ -268,7 +257,7 @@ function run_cpu_benchmark {
     if [ $SINGLE_TIME -gt 0 ] && [ $MULTI_TIME -gt 0 ]; then
         # Calculate relative performance scores
         CPU_SCORE_SINGLE=$((10000000 / SINGLE_TIME))
-        CPU_SCORE_MULTI=$((10000000 * CORES / MULTI_TIME))
+        CPU_SCORE_MULTI=$((10000000 * THREADS / MULTI_TIME))
         return 0
     else
         printf "Error: Benchmark timing failed\n"
@@ -313,7 +302,20 @@ DISK_PATH="/$DEVICE"
 
 # System Information
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//g' | xargs)
-CORES=$(grep -c ^processor /proc/cpuinfo)
+# Get physical cores and threads
+PHYSICAL_CORES=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/{core_cpus_list,thread_siblings_list} 2>/dev/null | sort -u | wc -l)
+if [ "$PHYSICAL_CORES" -eq 0 ]; then
+    # Fallback method
+    PHYSICAL_CORES=$(cat /proc/cpuinfo | grep -c 'core id' 2>/dev/null)
+    [ "$PHYSICAL_CORES" -eq 0 ] && PHYSICAL_CORES=$(grep -c ^processor /proc/cpuinfo)
+fi
+THREADS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
+# Format display: show as "X (Y threads)" if different, otherwise just the number
+if [ "$PHYSICAL_CORES" -eq "$THREADS" ]; then
+    CORES_DISPLAY="$PHYSICAL_CORES"
+else
+    CORES_DISPLAY="$PHYSICAL_CORES ($THREADS threads)"
+fi
 RAM="$(free -b | awk '/Mem:/ {printf "%.1fGB", $2/1024/1024/1024}')"
 ARC="$(grep "LVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
 [ -z "$ARC" ] && ARC="Unknown" || true
@@ -341,7 +343,7 @@ fi
     printf "\nArc Benchmark %s\n\n" "$VERSION"
     printf "System Information:\n"
     printf "  %-20s %s\n" "CPU:"      "$CPU"
-    printf "  %-20s %s\n" "Cores:"    "$CORES"
+    printf "  %-20s %s\n" "Cores:"    "$CORES_DISPLAY"
     [ -n "$GPU_MODEL" ] && printf "  %-20s %s\n" "GPU:" "$GPU_MODEL"
     printf "  %-20s %s\n" "RAM:"      "$RAM"
     printf "  %-20s %s\n" "Loader:"   "$ARC"
