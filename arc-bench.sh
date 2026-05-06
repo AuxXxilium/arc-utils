@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.4"
+VERSION="1.6.5"
 
 function run_fio_test {
     local test_name=$1
@@ -179,6 +179,7 @@ function run_gpu_benchmark {
     
     printf "Running GPU Benchmark with %s...\n" "$encoder"
     local ffmpeg_output
+    local first_encoder="$encoder"
     ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
     
     # Extract the final speed value from ffmpeg output
@@ -195,9 +196,24 @@ function run_gpu_benchmark {
     
     if [ -n "$speed" ]; then
         printf "\n" | tee -a /tmp/results.txt
-        printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
+        if [ "$first_encoder" != "$encoder" ]; then
+            printf "GPU Benchmark Result: %s (%s, fallback from %s)\n" "$speed" "$encoder" "$first_encoder" | tee -a /tmp/results.txt
+        else
+            printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
+        fi
     else
-        printf "GPU Benchmark failed.\n" | tee -a /tmp/results.txt
+        printf "\n" | tee -a /tmp/results.txt
+        if [ "$first_encoder" != "$encoder" ]; then
+            printf "GPU Benchmark failed (tried %s and %s fallback).\n" "$first_encoder" "$encoder" | tee -a /tmp/results.txt
+        else
+            printf "GPU Benchmark failed with %s.\n" "$encoder" | tee -a /tmp/results.txt
+        fi
+        # Extract specific error from ffmpeg output
+        local error_msg=$(echo "$ffmpeg_output" | grep -i "error\|failed\|cannot" | head -n 3)
+        if [ -n "$error_msg" ]; then
+            printf "Error: %s\n" "$error_msg" | tee -a /tmp/results.txt
+        fi
+        printf "\nFull error output saved to /tmp/gpu_bench_error.log\n" | tee -a /tmp/results.txt
         printf "Error output:\n%s\n" "$ffmpeg_output" >> /tmp/gpu_bench_error.log
     fi
 }
