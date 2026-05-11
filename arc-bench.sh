@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.6"
+VERSION="1.6.8"
 
 function run_fio_test {
     local test_name=$1
@@ -125,10 +125,15 @@ function run_storage_test {
 
 function run_gpu_benchmark {
     local bench_file="/tmp/bench.mp4"
-    local output_file="/tmp/output.mp4"
     local encoder=""
     local ffmpeg_cmd=""
     local ffmpeg_bin="/var/packages/ffmpeg8/target/bin/ffmpeg"
+
+    # Check if ffmpeg is available
+    if ! command -v "$ffmpeg_bin" &>/dev/null; then
+        printf "FFmpeg8 not found or not executable. Skipping GPU benchmark.\n" | tee -a /tmp/results.txt
+        return
+    fi
 
     # Check available encoders
     local has_nvenc=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_nvenc" && echo "yes" || echo "no")
@@ -136,10 +141,10 @@ function run_gpu_benchmark {
     local has_vaapi=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_vaapi" && echo "yes" || echo "no")
 
     # Detect GPU and select encoder
-    if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null; then
+    if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
         if [ "$has_nvenc" = "yes" ]; then
             encoder="h264_nvenc"
-            ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -y $output_file"
+            ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -f null -"
         else
             printf "NVIDIA GPU detected but NVENC not available in FFmpeg.\n" | tee -a /tmp/results.txt
             return
@@ -147,10 +152,10 @@ function run_gpu_benchmark {
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
         if [ "$has_qsv" = "yes" ]; then
             encoder="h264_qsv"
-            ffmpeg_cmd="-init_hw_device qsv=hw -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -global_quality 25 -y $output_file"
+            ffmpeg_cmd="-init_hw_device qsv=hw -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -global_quality 25 -f null -"
         elif [ "$has_vaapi" = "yes" ]; then
             encoder="h264_vaapi"
-            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -y $output_file"
+            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
         else
             printf "Intel GPU detected but no hardware encoder available in FFmpeg.\n" | tee -a /tmp/results.txt
             return
@@ -158,7 +163,7 @@ function run_gpu_benchmark {
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
         if [ "$has_vaapi" = "yes" ]; then
             encoder="h264_vaapi"
-            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -y $output_file"
+            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
         else
             printf "AMD GPU detected but VAAPI not available in FFmpeg.\n" | tee -a /tmp/results.txt
             return
@@ -167,7 +172,7 @@ function run_gpu_benchmark {
         printf "No compatible GPU detected. Skipping GPU benchmark.\n"
         return
     fi
-    
+
     if [ ! -f "$bench_file" ]; then
         printf "Downloading bench.mp4...\n"
         curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file"
@@ -176,24 +181,24 @@ function run_gpu_benchmark {
             return
         fi
     fi
-    
+
     printf "Running GPU Benchmark with %s...\n" "$encoder"
     local ffmpeg_output
     local first_encoder="$encoder"
     ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
-    
+
     # Extract the final speed value from ffmpeg output
     local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
-    
+
     # If QSV failed and VAAPI is available, retry with VAAPI
     if [ -z "$speed" ] && [ "$encoder" = "h264_qsv" ] && [ "$has_vaapi" = "yes" ]; then
         printf "QSV failed, retrying with VAAPI fallback...\n"
         encoder="h264_vaapi"
-        ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -y $output_file"
+        ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
         ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
         speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
     fi
-    
+
     if [ -n "$speed" ]; then
         printf "\n" | tee -a /tmp/results.txt
         if [ "$first_encoder" != "$encoder" ]; then
@@ -209,28 +214,28 @@ function run_gpu_benchmark {
 
 function run_cpu_benchmark {
     printf "Running CPU benchmark...\n"
-    
+
     # Get number of logical processors (threads)
     THREADS=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
-    
+
     # Single-core test: CPU intensive calculation
     printf "Running single-core test...\n"
     SINGLE_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
-    
+
     # Perform CPU-intensive calculations
     i=0
     while [ $i -lt 500000 ]; do
         result=$((i * i * i / (i + 1)))
         i=$((i + 1))
     done
-    
+
     SINGLE_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     SINGLE_TIME=$(( (SINGLE_END - SINGLE_START) / 1000000 ))  # Convert to milliseconds
-    
+
     # Multi-core test: Run parallel processes
     printf "Running multi-core test (%s threads)...\n" "$THREADS"
     MULTI_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
-    
+
     # Launch background processes for each thread
     pids=""
     for core in $(seq 1 $THREADS); do
@@ -243,15 +248,15 @@ function run_cpu_benchmark {
         ) &
         pids="$pids $!"
     done
-    
+
     # Wait for all processes to complete
     for pid in $pids; do
         wait $pid 2>/dev/null
     done
-    
+
     MULTI_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     MULTI_TIME=$(( (MULTI_END - MULTI_START) / 1000000 ))  # Convert to milliseconds
-    
+
     # Calculate scores (lower time = higher score)
     # Base score of 1000, adjusted by time taken
     if [ $SINGLE_TIME -gt 0 ] && [ $MULTI_TIME -gt 0 ]; then
@@ -385,7 +390,7 @@ fi
 if [ "$IGPU_BENCHMARK" == "y" ]; then
     printf "\nStarting GPU Test...\n"
     sleep 1
-    run_gpu_benchmark "/tmp/bench.mp4" "/tmp/output.mp4"
+    run_gpu_benchmark
 fi
 
 # Run CPU Benchmark
