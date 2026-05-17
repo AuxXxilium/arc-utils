@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.8"
+VERSION="1.6.9"
 
 function run_fio_test {
     local test_name=$1
@@ -102,7 +102,9 @@ function run_storage_test {
 
     # Check if the device was found
     if [[ -z "$device" ]]; then
-        printf "Error: Could not find the device for %s.\n" "$volume" | tee -a /tmp/results.txt
+        local error_msg="Error: Could not find the device for $volume."
+        printf "%s\n" "$error_msg"
+        BENCHMARK_RESULTS+=$(printf "%s\n" "$error_msg")
         return
     fi
 
@@ -114,13 +116,16 @@ function run_storage_test {
     # Extract the total reads and speed from the hdparm output
     local speed=$(echo "$hdparm_output" | grep -oP '=\s*\K[0-9.]+(?=\sMB/sec)')
     if [[ -z "$speed" ]]; then
-        printf "Error: Failed to extract disk read data from hdparm output for %s.\n" "$device" | tee -a /tmp/results.txt
+        local error_msg="Error: Failed to extract disk read data from hdparm output for $device."
+        printf "%s\n" "$error_msg"
+        BENCHMARK_RESULTS+=$(printf "%s\n" "$error_msg")
         return
     fi
 
     printf "\n"
-    printf "Direct Storage Test Result:\n" | tee -a /tmp/results.txt
-    printf "  Read Speed: %s MiB/s\n" "$speed" | tee -a /tmp/results.txt
+    result="Direct Storage Test Result:\n  Read Speed: ${speed} MiB/s"
+    printf "%b\n" "$result"
+    BENCHMARK_RESULTS+="${result}"
 }
 
 function run_gpu_benchmark {
@@ -131,7 +136,9 @@ function run_gpu_benchmark {
 
     # Check if ffmpeg is available
     if ! command -v "$ffmpeg_bin" &>/dev/null; then
-        printf "FFmpeg8 not found or not executable. Skipping GPU benchmark.\n" | tee -a /tmp/results.txt
+        local error_msg="FFmpeg8 not found or not executable. Skipping GPU benchmark."
+        printf "%s\n" "$error_msg"
+        BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
         return
     fi
 
@@ -146,7 +153,9 @@ function run_gpu_benchmark {
             encoder="h264_nvenc"
             ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -f null -"
         else
-            printf "NVIDIA GPU detected but NVENC not available in FFmpeg.\n" | tee -a /tmp/results.txt
+            local error_msg="NVIDIA GPU detected but NVENC not available in FFmpeg."
+            printf "%s\n" "$error_msg"
+            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
             return
         fi
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
@@ -157,7 +166,9 @@ function run_gpu_benchmark {
             encoder="h264_vaapi"
             ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
         else
-            printf "Intel GPU detected but no hardware encoder available in FFmpeg.\n" | tee -a /tmp/results.txt
+            local error_msg="Intel GPU detected but no hardware encoder available in FFmpeg."
+            printf "%s\n" "$error_msg"
+            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
             return
         fi
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
@@ -165,7 +176,9 @@ function run_gpu_benchmark {
             encoder="h264_vaapi"
             ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
         else
-            printf "AMD GPU detected but VAAPI not available in FFmpeg.\n" | tee -a /tmp/results.txt
+            local error_msg="AMD GPU detected but VAAPI not available in FFmpeg."
+            printf "%s\n" "$error_msg"
+            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
             return
         fi
     else
@@ -199,16 +212,23 @@ function run_gpu_benchmark {
         speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
     fi
 
+    local gpu_result
     if [ -n "$speed" ]; then
-        printf "\n" | tee -a /tmp/results.txt
+        printf "\n"
+        BENCHMARK_RESULTS+="\n"
         if [ "$first_encoder" != "$encoder" ]; then
-            printf "GPU Benchmark Result: %s (%s, fallback from %s)\n" "$speed" "$encoder" "$first_encoder" | tee -a /tmp/results.txt
+            gpu_result="GPU Benchmark Result: ${speed} (${encoder}, fallback from ${first_encoder})\n"
         else
-            printf "GPU Benchmark Result: %s (%s)\n" "$speed" "$encoder" | tee -a /tmp/results.txt
+            gpu_result="GPU Benchmark Result: ${speed} (${encoder})\n"
         fi
+        printf "%b" "$gpu_result"
+        BENCHMARK_RESULTS+="${gpu_result}"
     else
-        printf "\n" | tee -a /tmp/results.txt
-        printf "GPU Benchmark not possible.\n" | tee -a /tmp/results.txt
+        printf "\n"
+        BENCHMARK_RESULTS+="\n"
+        gpu_result="GPU Benchmark not possible.\n"
+        printf "%b" "$gpu_result"
+        BENCHMARK_RESULTS+="${gpu_result}"
     fi
 }
 
@@ -270,66 +290,67 @@ function run_cpu_benchmark {
     fi
 }
 
-function launch_cpu_benchmark {
-    # Simple wrapper to run CPU benchmark
-    run_cpu_benchmark
-    return $?
-}
-
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
 printf "This script will check your storage (hdparm, fio), CPU (local benchmark) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
 
-rm -f /tmp/results.txt /tmp/igpu_benchmark.txt
+rm -f /tmp/igpu_benchmark.txt
+
+# Initialize results variable
+BENCHMARK_RESULTS=""
 
 DEVICE="/volume1"  # Default volume path
+STORAGE_BENCH="y"  # Default storage benchmark setting
 CPU_BENCH="y"  # Default CPU benchmark setting
-read -p "Enter volume path [default: $DEVICE]: " input
-DEVICE="${input:-$DEVICE}"
+
+read -p "Run storage benchmark (y or n to skip) [default: y]: " input
+STORAGE_BENCH="${input:-$STORAGE_BENCH}"
+STORAGE_BENCH="${STORAGE_BENCH^^}"  # Convert to uppercase
+if [ "$STORAGE_BENCH" == "Y" ]; then
+    read -p "Enter volume path [default: $DEVICE]: " input
+    DEVICE="${input:-$DEVICE}"
+fi
 
 read -p "Run CPU benchmark (y or n to skip) [default: y]: " input
 CPU_BENCH="${input:-$CPU_BENCH}"
-if lspci -d ::300 | grep -i 'Intel\|NVIDIA\|AMD' &>/dev/null; then
+CPU_BENCH="${CPU_BENCH^^}"  # Convert to uppercase
+
+if lspci -d ::300 | grep -qi 'Intel\|NVIDIA\|AMD' &>/dev/null; then
     if command -v /var/packages/ffmpeg8/target/bin/ffmpeg &>/dev/null; then
         printf "Compatible GPU detected and FFmpeg8 found.\n"
         read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
         IGPU_BENCHMARK="${input:-y}"
+        IGPU_BENCHMARK="${IGPU_BENCHMARK^^}"  # Convert to uppercase
     else
         printf "Compatible GPU detected but FFmpeg8 not found.\n"
-        IGPU_BENCHMARK="n"
+        IGPU_BENCHMARK="N"
     fi
 else
     printf "No compatible GPU detected.\n"
-    IGPU_BENCHMARK="n"
+    IGPU_BENCHMARK="N"
 fi
 
 DEVICE="${DEVICE#/}"
 DISK_PATH="/$DEVICE"
 
-# System Information
+# Gather System Information
 CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//g' | xargs)
-# Get physical cores and threads
-PHYSICAL_CORES=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/{core_cpus_list,thread_siblings_list} 2>/dev/null | sort -u | wc -l)
-if [ "$PHYSICAL_CORES" -eq 0 ]; then
-    # Fallback method
-    PHYSICAL_CORES=$(cat /proc/cpuinfo | grep -c 'core id' 2>/dev/null)
-    [ "$PHYSICAL_CORES" -eq 0 ] && PHYSICAL_CORES=$(grep -c ^processor /proc/cpuinfo)
-fi
 THREADS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
-# Format display: show as "X (Y threads)" if different, otherwise just the number
-if [ "$PHYSICAL_CORES" -eq "$THREADS" ]; then
-    CORES_DISPLAY="$PHYSICAL_CORES"
-else
-    CORES_DISPLAY="$PHYSICAL_CORES ($THREADS threads)"
-fi
+PHYSICAL_CORES=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/{core_cpus_list,thread_siblings_list} 2>/dev/null | sort -u | wc -l)
+[ "$PHYSICAL_CORES" -eq 0 ] && PHYSICAL_CORES=$(grep -c 'core id' /proc/cpuinfo 2>/dev/null || echo "$THREADS")
+CORES_DISPLAY=$([ "$PHYSICAL_CORES" -eq "$THREADS" ] && echo "$PHYSICAL_CORES" || echo "$PHYSICAL_CORES ($THREADS threads)")
 RAM="$(free -b | awk '/Mem:/ {printf "%.1fGB", $2/1024/1024/1024}')"
 ARC="$(grep "LVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
-[ -z "$ARC" ] && ARC="Unknown" || true
+[ -z "$ARC" ] && ARC="Unknown"
 MODEL="$(cat /etc.defaults/synoinfo.conf 2>/dev/null | grep "unique" | awk -F= '{print $2}' | tr -d '"' | xargs)"
-[ -z "$MODEL" ] && MODEL="Unknown" || true
+[ -z "$MODEL" ] && MODEL="Unknown"
 KERNEL="$(uname -r)"
-FILESYSTEM="$(df -T "$DISK_PATH" | awk 'NR==2 {print $2}')"
-[ -z "$FILESYSTEM" ] && printf "Unknown Filesystem\n" && exit 1 || true
 SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && printf "virtual" || printf "physical")
+
+# Get filesystem only if storage benchmark is enabled
+if [ "$STORAGE_BENCH" == "Y" ]; then
+    FILESYSTEM="$(df -T "$DISK_PATH" | awk 'NR==2 {print $2}')"
+    [ -z "$FILESYSTEM" ] && printf "Unknown Filesystem\n" && exit 1
+fi
 
 # Detect GPU
 GPU_MODEL=""
@@ -344,76 +365,93 @@ elif lspci -d ::300 2>/dev/null | grep -qi "AMD\|Advanced Micro Devices"; then
     [ -n "$GPU_MODEL" ] && GPU_MODEL="AMD $GPU_MODEL"
 fi
 
-{
-    printf "\nArc Benchmark %s\n\n" "$VERSION"
-    printf "System Information:\n"
-    printf "  %-20s %s\n" "CPU:"      "$CPU"
-    printf "  %-20s %s\n" "Cores:"    "$CORES_DISPLAY"
-    [ -n "$GPU_MODEL" ] && printf "  %-20s %s\n" "GPU:" "$GPU_MODEL"
-    printf "  %-20s %s\n" "RAM:"      "$RAM"
-    printf "  %-20s %s\n" "Loader:"   "$ARC"
-    printf "  %-20s %s\n" "Model:"    "$MODEL"
-    printf "  %-20s %s\n" "Kernel:"   "$KERNEL"
-    printf "  %-20s %s\n" "System:"   "$SYSTEM"
-    printf "  %-20s %s\n" "Disk Path:" "$DEVICE"
-    printf "  %-20s %s\n" "Filesystem:" "$FILESYSTEM"
-    printf "\n"
-} | tee -a /tmp/results.txt
+# Build system information in variable
+BENCHMARK_RESULTS="Arc Benchmark ${VERSION}\n\n"
+BENCHMARK_RESULTS+="System Information:\n"
+BENCHMARK_RESULTS+="  CPU: ${CPU}\n"
+BENCHMARK_RESULTS+="  Cores: ${CORES_DISPLAY}\n"
+[ "$IGPU_BENCHMARK" == "Y" ] && [ -n "$GPU_MODEL" ] && BENCHMARK_RESULTS+="  GPU: ${GPU_MODEL}\n"
+BENCHMARK_RESULTS+="  RAM: ${RAM}\n"
+BENCHMARK_RESULTS+="  Loader: ${ARC}\n"
+BENCHMARK_RESULTS+="  Model: ${MODEL}\n"
+BENCHMARK_RESULTS+="  Kernel: ${KERNEL}\n"
+BENCHMARK_RESULTS+="  System: ${SYSTEM}\n"
+if [ "$STORAGE_BENCH" == "Y" ]; then
+    BENCHMARK_RESULTS+="  Disk Path: ${DEVICE}\n"
+    BENCHMARK_RESULTS+="  Filesystem: ${FILESYSTEM}\n"
+fi
+BENCHMARK_RESULTS+="\n"
+
+# Display system info to console
+printf "%b" "$BENCHMARK_RESULTS"
 
 # Run Storage Test
-printf "Starting Storage Test...\n"
-run_storage_test "/$DEVICE"
+if [ "$STORAGE_BENCH" == "Y" ]; then
+    printf "Starting Storage Test...\n"
+    run_storage_test "/$DEVICE"
 
-if command -v fio &>/dev/null; then
-    IODEPTH=8
+    if command -v fio &>/dev/null; then
+        printf "\n"
+        BENCHMARK_RESULTS+="\n"
+        IODEPTH=8
 
-    printf "\nStarting Storage Test...\n"
-    sleep 3
-    run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
-    sleep 3
-    run_fio_test "Sequential Write" "write" "16M" "$IODEPTH" "/tmp/fio_write.txt" 1
-    sleep 3
-    run_fio_test "Random Read" "randread" "64k" "$IODEPTH" "/tmp/fio_randread.txt" 0
-    sleep 3
-    run_fio_test "Random Write" "randwrite" "64k" "$IODEPTH" "/tmp/fio_randwrite.txt" 1
-    sleep 3
+        sleep 3
+        run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
+        sleep 3
+        run_fio_test "Sequential Write" "write" "16M" "$IODEPTH" "/tmp/fio_write.txt" 1
+        sleep 3
+        run_fio_test "Random Read" "randread" "64k" "$IODEPTH" "/tmp/fio_randread.txt" 0
+        sleep 3
+        run_fio_test "Random Write" "randwrite" "64k" "$IODEPTH" "/tmp/fio_randwrite.txt" 1
+        sleep 3
 
-    printf "\n" | tee -a /tmp/results.txt
-    printf "Storage Test Results:\n" | tee -a /tmp/results.txt
-    fio_summary /tmp/fio_read.txt "read" | tee -a /tmp/results.txt
-    fio_summary /tmp/fio_write.txt "write" | tee -a /tmp/results.txt
-    fio_summary /tmp/fio_randread.txt "randread" | tee -a /tmp/results.txt
-    fio_summary /tmp/fio_randwrite.txt "randwrite" | tee -a /tmp/results.txt
+        printf "\n"
+        BENCHMARK_RESULTS+="\n"
+        storage_results="Storage Test Results:\n"
+        storage_results+=$(fio_summary /tmp/fio_read.txt "read")
+        storage_results+="\n"
+        storage_results+=$(fio_summary /tmp/fio_write.txt "write")
+        storage_results+="\n"
+        storage_results+=$(fio_summary /tmp/fio_randread.txt "randread")
+        storage_results+="\n"
+        storage_results+=$(fio_summary /tmp/fio_randwrite.txt "randwrite")
+        printf "%b\n" "$storage_results"
+        BENCHMARK_RESULTS+="${storage_results}\n"
+    fi
+else
+    printf "Skipping storage benchmark as requested.\n"
 fi
 
 # Run GPU Benchmark
-if [ "$IGPU_BENCHMARK" == "y" ]; then
+if [ "$IGPU_BENCHMARK" == "Y" ]; then
     printf "\nStarting GPU Test...\n"
     sleep 1
     run_gpu_benchmark
 fi
 
 # Run CPU Benchmark
-if [ "$CPU_BENCH" != "y" ] && [ "$CPU_BENCH" != "Y" ]; then
-    printf "Skipping CPU benchmark as requested.\n"
-    CPU_SCORE_SINGLE=""
-    CPU_SCORE_MULTI=""
-else
+if [ "$CPU_BENCH" == "Y" ]; then
     printf "\nStarting CPU benchmark...\n"
     sleep 2
-    launch_cpu_benchmark
-    printf "\n" | tee -a /tmp/results.txt
-    printf "CPU Benchmark Results:\n" | tee -a /tmp/results.txt
+    run_cpu_benchmark
+    printf "\n"
+    BENCHMARK_RESULTS+="\n"
+    cpu_results="CPU Benchmark Results:\n"
     if [[ -n $CPU_SCORE_SINGLE && -n $CPU_SCORE_MULTI ]]; then
-        printf "  Single Core: %s\n  Multi Core:  %s\n" \
-            "$CPU_SCORE_SINGLE" "$CPU_SCORE_MULTI" | tee -a /tmp/results.txt
+        cpu_results+="  Single Core: ${CPU_SCORE_SINGLE}\n  Multi Core:  ${CPU_SCORE_MULTI}\n"
     else
-        printf "CPU benchmark failed or not run.\n" | tee -a /tmp/results.txt
+        cpu_results+="CPU benchmark failed or not run.\n"
     fi
+    printf "%b" "$cpu_results"
+    BENCHMARK_RESULTS+="${cpu_results}"
+else
+    printf "Skipping CPU benchmark as requested.\n"
 fi
 
 printf "\nAll benchmarks completed.\n"
-printf "Use cat /tmp/results.txt to view the results.\n"
+
+# Make results readonly to prevent modification
+readonly BENCHMARK_RESULTS
 
 if [ -n "${1}" ] || [ -n "${2}" ] || [ -n "${3}" ] || [ ! -f "/usr/bin/jq" ]; then
     printf "No upload to Discord possible.\n"
@@ -422,10 +460,11 @@ else
     if [[ "$send_discord" == "y" ]]; then
         webhook_url="https://arc.auxxxilium.tech/bench"
         read -p "Enter your username: " username
-        results=$(cat /tmp/results.txt)
         [ -z "$username" ] && username="Anonymous"
-        message=$(printf "Benchmark from %s\n---\n%s" "$username" "$results")
-        json_content=$(jq -nc --arg c "$message" '{content: "\n\($c)\n"}')
+        # Format message with username and results (bench.php will wrap in code blocks)
+        formatted_results=$(printf "%b" "$BENCHMARK_RESULTS")
+        message="Benchmark from ${username}"$'\n---\n'"${formatted_results}"
+        json_content=$(jq -nc --arg c "$message" '{content: $c}')
         response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
         if echo "$response" | grep -q '"status":"sent"'; then
             printf "Results sent to Discord.\n"
