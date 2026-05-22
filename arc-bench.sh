@@ -6,29 +6,30 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.9"
+VERSION="1.6.10"
 
 function run_fio_test {
     local test_name=$1
     local rw_mode=$2
     local blocksize=$3
     local iodepth=$4
-    local output_file=$5
-    local direct_flag=$6
+    local direct_flag=$5
 
     printf "Running %s...\n" "$test_name"
 
     fio --name=TEST --filename="$DISK_PATH/fio-tempfile.dat" \
         --rw="$rw_mode" --size=16M --blocksize="$blocksize" \
         --ioengine=libaio --fsync=0 --iodepth="$iodepth" --direct="$direct_flag" --numjobs="4" \
-        --group_reporting > "$output_file" 2>/dev/null
+        --group_reporting 2>/dev/null
     rm -f "$DISK_PATH/fio-tempfile.dat" 2>/dev/null
+
 }
 
+
 function fio_summary {
-    local file=$1
+    local output="$1"
     local test_type=$2
-    awk -v test_type="$test_type" '
+    echo "$output" | awk -v test_type="$test_type" '
         function format_speed(val, unit) {
             val += 0;
             if (unit ~ /GiB\/s|GB\/s/) val *= 1024;  # Convert GiB/s or GB/s to MiB/s
@@ -91,7 +92,19 @@ function fio_summary {
         END {
             if (!found) print "  No valid data found for " test_type " test.";
         }
-    ' "$file"
+    '
+}
+
+function append_result_section() {
+    local section="$1"
+    [ -z "$section" ] && return
+
+    if [ "${RESULT_SECTION_COUNT:-0}" -gt 0 ]; then
+        BENCHMARK_RESULTS+="\n\n"
+    fi
+
+    BENCHMARK_RESULTS+="$section"
+    RESULT_SECTION_COUNT=$(( ${RESULT_SECTION_COUNT:-0} + 1 ))
 }
 
 function run_storage_test {
@@ -104,7 +117,7 @@ function run_storage_test {
     if [[ -z "$device" ]]; then
         local error_msg="Error: Could not find the device for $volume."
         printf "%s\n" "$error_msg"
-        BENCHMARK_RESULTS+=$(printf "%s\n" "$error_msg")
+        append_result_section "$error_msg"
         return
     fi
 
@@ -118,14 +131,14 @@ function run_storage_test {
     if [[ -z "$speed" ]]; then
         local error_msg="Error: Failed to extract disk read data from hdparm output for $device."
         printf "%s\n" "$error_msg"
-        BENCHMARK_RESULTS+=$(printf "%s\n" "$error_msg")
+        append_result_section "$error_msg"
         return
     fi
 
     printf "\n"
     result="Direct Storage Test Result:\n  Read Speed: ${speed} MiB/s"
     printf "%b\n" "$result"
-    BENCHMARK_RESULTS+="${result}"
+    append_result_section "$result"
 }
 
 function run_gpu_benchmark {
@@ -138,7 +151,7 @@ function run_gpu_benchmark {
     if ! command -v "$ffmpeg_bin" &>/dev/null; then
         local error_msg="FFmpeg8 not found or not executable. Skipping GPU benchmark."
         printf "%s\n" "$error_msg"
-        BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
+        append_result_section "$error_msg"
         return
     fi
 
@@ -147,15 +160,33 @@ function run_gpu_benchmark {
     local has_qsv=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_qsv" && echo "yes" || echo "no")
     local has_vaapi=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_vaapi" && echo "yes" || echo "no")
 
+    # Function to find available VAAPI render device
+    find_vaapi_device() {
+        local render_device=""
+        for device in /dev/dri/renderD*; do
+            [ -e "$device" ] && render_device="$device" && break
+        done
+        echo "$render_device"
+    }
+
+    # Function to setup VAAPI encoder
+    setup_vaapi_encoder() {
+        local vaapi_device=$(find_vaapi_device)
+        if [ -z "$vaapi_device" ]; then
+            return 1
+        fi
+        encoder="h264_vaapi"
+        ffmpeg_cmd="-init_hw_device vaapi=va:${vaapi_device} -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
+        return 0
+    }
+
     # Detect GPU and select encoder
     if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
         if [ "$has_nvenc" = "yes" ]; then
             encoder="h264_nvenc"
             ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -f null -"
         else
-            local error_msg="NVIDIA GPU detected but NVENC not available in FFmpeg."
-            printf "%s\n" "$error_msg"
-            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
+            append_result "NVIDIA GPU detected but NVENC not available in FFmpeg."
             return
         fi
     elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
@@ -163,22 +194,22 @@ function run_gpu_benchmark {
             encoder="h264_qsv"
             ffmpeg_cmd="-init_hw_device qsv=hw -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -global_quality 25 -f null -"
         elif [ "$has_vaapi" = "yes" ]; then
-            encoder="h264_vaapi"
-            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
+            if ! setup_vaapi_encoder; then
+                append_result "Intel GPU detected but VAAPI device not found."
+                return
+            fi
         else
-            local error_msg="Intel GPU detected but no hardware encoder available in FFmpeg."
-            printf "%s\n" "$error_msg"
-            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
+            append_result "Intel GPU detected but no hardware encoder available in FFmpeg."
             return
         fi
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
         if [ "$has_vaapi" = "yes" ]; then
-            encoder="h264_vaapi"
-            ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
+            if ! setup_vaapi_encoder; then
+                append_result "AMD GPU detected but VAAPI device not found in /dev/dri/renderD*."
+                return
+            fi
         else
-            local error_msg="AMD GPU detected but VAAPI not available in FFmpeg."
-            printf "%s\n" "$error_msg"
-            BENCHMARK_RESULTS+=$(printf "\n%s\n" "$error_msg")
+            append_result "AMD GPU detected but VAAPI not available in FFmpeg."
             return
         fi
     else
@@ -188,9 +219,17 @@ function run_gpu_benchmark {
 
     if [ ! -f "$bench_file" ]; then
         printf "Downloading bench.mp4...\n"
-        curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file"
-        if [ $? -ne 0 ]; then
+        curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file" 2>&1
+        if [ $? -ne 0 ] || [ ! -f "$bench_file" ]; then
             printf "Failed to download bench.mp4. Skipping GPU benchmark.\n"
+            rm -f "$bench_file" 2>/dev/null
+            return
+        fi
+        # Verify the file is not empty and has reasonable size
+        local file_size=$(stat -f%z "$bench_file" 2>/dev/null || stat -c%s "$bench_file" 2>/dev/null)
+        if [ -z "$file_size" ] || [ "$file_size" -lt 1048576 ]; then  # Less than 1MB = likely incomplete
+            printf "Downloaded bench.mp4 appears to be incomplete or corrupted (size: %s bytes). Skipping GPU benchmark.\n" "$file_size"
+            rm -f "$bench_file" 2>/dev/null
             return
         fi
     fi
@@ -206,30 +245,26 @@ function run_gpu_benchmark {
     # If QSV failed and VAAPI is available, retry with VAAPI
     if [ -z "$speed" ] && [ "$encoder" = "h264_qsv" ] && [ "$has_vaapi" = "yes" ]; then
         printf "QSV failed, retrying with VAAPI fallback...\n"
-        encoder="h264_vaapi"
-        ffmpeg_cmd="-init_hw_device vaapi=va:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
-        ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
-        speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
+        if setup_vaapi_encoder; then
+            ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
+            speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
+        fi
     fi
 
-    local gpu_result
     if [ -n "$speed" ]; then
-        printf "\n"
-        BENCHMARK_RESULTS+="\n"
         if [ "$first_encoder" != "$encoder" ]; then
-            gpu_result="GPU Benchmark Result: ${speed} (${encoder}, fallback from ${first_encoder})\n"
+            append_result "GPU Benchmark Result: ${speed} (${encoder}, fallback from ${first_encoder})"
         else
-            gpu_result="GPU Benchmark Result: ${speed} (${encoder})\n"
+            append_result "GPU Benchmark Result: ${speed} (${encoder})"
         fi
-        printf "%b" "$gpu_result"
-        BENCHMARK_RESULTS+="${gpu_result}"
     else
-        printf "\n"
-        BENCHMARK_RESULTS+="\n"
-        gpu_result="GPU Benchmark not possible.\n"
-        printf "%b" "$gpu_result"
-        BENCHMARK_RESULTS+="${gpu_result}"
+        append_result "GPU Benchmark not possible."
     fi
+}
+
+function append_result() {
+    printf "%b\n" "$1"
+    append_result_section "$1"
 }
 
 function run_cpu_benchmark {
@@ -385,38 +420,43 @@ BENCHMARK_RESULTS+="\n"
 # Display system info to console
 printf "%b" "$BENCHMARK_RESULTS"
 
+# Track appended benchmark sections (storage, GPU, CPU) to keep exactly one blank line between them
+RESULT_SECTION_COUNT=0
+
 # Run Storage Test
 if [ "$STORAGE_BENCH" == "Y" ]; then
     printf "Starting Storage Test...\n"
     run_storage_test "/$DEVICE"
 
     if command -v fio &>/dev/null; then
-        printf "\n"
-        BENCHMARK_RESULTS+="\n"
+        printf "\nRunning Storage Test...\n"
         IODEPTH=8
+        fio_tests=(
+            "Sequential Read:read:16M:1"
+            "Sequential Write:write:16M:1"
+            "Random Read:randread:64k:0"
+            "Random Write:randwrite:64k:1"
+        )
+        fio_outputs=()
+        fio_types=()
+        
+        for test in "${fio_tests[@]}"; do
+            IFS=':' read -r name mode block direct <<< "$test"
+            sleep 3
+            output=$(run_fio_test "$name" "$mode" "$block" "$IODEPTH" "$direct")
+            fio_outputs+=("$output")
+            fio_types+=("$mode")
+        done
+        sleep 3
 
-        sleep 3
-        run_fio_test "Sequential Read" "read" "16M" "$IODEPTH" "/tmp/fio_read.txt" 1
-        sleep 3
-        run_fio_test "Sequential Write" "write" "16M" "$IODEPTH" "/tmp/fio_write.txt" 1
-        sleep 3
-        run_fio_test "Random Read" "randread" "64k" "$IODEPTH" "/tmp/fio_randread.txt" 0
-        sleep 3
-        run_fio_test "Random Write" "randwrite" "64k" "$IODEPTH" "/tmp/fio_randwrite.txt" 1
-        sleep 3
-
-        printf "\n"
-        BENCHMARK_RESULTS+="\n"
         storage_results="Storage Test Results:\n"
-        storage_results+=$(fio_summary /tmp/fio_read.txt "read")
-        storage_results+="\n"
-        storage_results+=$(fio_summary /tmp/fio_write.txt "write")
-        storage_results+="\n"
-        storage_results+=$(fio_summary /tmp/fio_randread.txt "randread")
-        storage_results+="\n"
-        storage_results+=$(fio_summary /tmp/fio_randwrite.txt "randwrite")
-        printf "%b\n" "$storage_results"
-        BENCHMARK_RESULTS+="${storage_results}\n"
+        for i in "${!fio_types[@]}"; do
+            storage_results+=$(fio_summary "${fio_outputs[$i]}" "${fio_types[$i]}")
+            [ $((i+1)) -lt ${#fio_types[@]} ] && storage_results+="\n"
+        done
+        storage_results="${storage_results%$'\n'}"
+        printf "\n"
+        append_result "${storage_results}"
     fi
 else
     printf "Skipping storage benchmark as requested.\n"
@@ -434,16 +474,13 @@ if [ "$CPU_BENCH" == "Y" ]; then
     printf "\nStarting CPU benchmark...\n"
     sleep 2
     run_cpu_benchmark
-    printf "\n"
-    BENCHMARK_RESULTS+="\n"
     cpu_results="CPU Benchmark Results:\n"
     if [[ -n $CPU_SCORE_SINGLE && -n $CPU_SCORE_MULTI ]]; then
-        cpu_results+="  Single Core: ${CPU_SCORE_SINGLE}\n  Multi Core:  ${CPU_SCORE_MULTI}\n"
+        cpu_results+="  Single Core: ${CPU_SCORE_SINGLE}\n  Multi Core:  ${CPU_SCORE_MULTI}"
     else
-        cpu_results+="CPU benchmark failed or not run.\n"
+        cpu_results+="CPU benchmark failed or not run."
     fi
-    printf "%b" "$cpu_results"
-    BENCHMARK_RESULTS+="${cpu_results}"
+    append_result "${cpu_results}"
 else
     printf "Skipping CPU benchmark as requested.\n"
 fi
