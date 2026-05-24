@@ -65,7 +65,7 @@ How-to use:
 Benchmark:
 - Storage read speed test using hdparm for quick disk performance estimation
 - Storage I/O performance test using fio across multiple read/write scenarios
-- Hardware transcoding performance test using [FFmpeg 8](./ffmpeg8) (if iGPU/GPU is available)
+- Hardware transcoding performance test using [FFmpeg 8](./apps) (if iGPU/GPU is available)
 - CPU performance test using local cpu benchmark solution
 
 This needs to run as 'root' (Usage at own risk):
@@ -90,8 +90,18 @@ Features:
 - Vulkan and OpenCL acceleration
 - High-performance video encoding/decoding for transcoding and streaming
 
-For build instructions and installation details, see the [FFmpeg 8](./ffmpeg8).
+For build instructions and installation details, see the [Apps](./apps).
 
+## SynoCli Videodriver
+
+Provides headless video driver support, including Intel Quick Sync for Intel CPU iGPU Gen6-Gen12+, plus Vulkan and OpenCL (Intel only).
+
+Features:
+- Intel Quick Sync Video (QSV)
+- VAAPI support
+- Vulkan and OpenCL
+
+For installation details, see the [Apps](./apps).
 
 ---
 
