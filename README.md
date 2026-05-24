@@ -92,6 +92,8 @@ Features:
 
 For build instructions and installation details, see the [Apps](./apps).
 
+---
+
 ## SynoCli Videodriver
 
 Provides headless video driver support, including Intel Quick Sync for Intel CPU iGPU Gen6-Gen12+, plus Vulkan and OpenCL (Intel only).
