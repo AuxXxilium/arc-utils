@@ -11,8 +11,6 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 
 ![FFmpeg 8 Commandline](dsm-screen.png)
 
----
-
 ## Hardware Acceleration Features
 
 ### NVIDIA GPU Support
@@ -28,21 +26,19 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 - **H.264/HEVC** encoding and decoding
 - **VP9** encoding support
 - **Hardware scaling** and color conversion
-- **Requirements:** Intel CPU with integrated graphics (6th gen or newer recommended)
+- **Requirements:** Intel CPU with integrated graphics (6th gen or newer recommended) or Arc GPU
 - **Performance:** 20-40x realtime encoding speeds
 
 ### VAAPI (Intel & AMD)
 - **VA-API** - Video Acceleration API
 - **Intel** - iGPU and Arc GPU support
-- **AMD** - Radeon GPU support
+- **AMD** - iGPU and Radeon GPU support
 - **DRM/libdrm** - Direct Rendering Manager integration
 - **Hardware formats:** NV12, P010, YUV420P
 
 ### Cross-Platform Acceleration
 - **Vulkan** - Cross-platform GPU compute (Intel, NVIDIA, AMD)
 - **OpenCL** - GPU compute for filters and processing
-
----
 
 ## Video Codecs & Formats
 
@@ -69,8 +65,6 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
 - **Vorbis** - Open-source codec
 - **AMR-NB/WB** - Voice codecs
 
----
-
 ## Known Limitations
 
 1. **NVIDIA Support**
@@ -85,6 +79,8 @@ FFmpeg 8.1 compiled with comprehensive hardware acceleration support for Synolog
    - Limited support on Synology hardware
    - Requires proper AMD GPU driver installation
 
+[Download](#download)
+
 ---
 
 # SynoCli Videodriver for Synology DSM 7.2+ - Hardware Acceleration Edition
@@ -97,8 +93,6 @@ Synocli VideoDriver is a comprehensive GPU driver package for Synology NAS syste
 **Maintainer:** AuxXxilium  
 **Architecture:** x64-7.2 (apollolake, broadwell, denverton and compatible)  
 **Build System:** spksrc (SynoCommunity framework)
-
----
 
 ## Hardware Support
 
@@ -116,21 +110,21 @@ Synocli VideoDriver is a comprehensive GPU driver package for Synology NAS syste
 - **Color Space Conversion** - Hardware-accelerated YUV/RGB transformations
 - **DRM Support** - Direct Rendering Manager for unified hardware access
 
+[Download](#download)
+
 ---
 
 # More Information
 
 ## Download
 
-- **Arc Apps Store:** Add ```https://apps.xpenology.tech``` to your DSM Package Center -> Settings -> Package Sources
+- **Xpenology Apps:** Add ```https://apps.xpenology.tech``` to your DSM Package Center -> Settings -> Package Sources
 
 ## Support & Resources
 
 - **GitHub:** https://github.com/AuxXxilium
 - **Website:** https://auxxxilium.tech
 - **Issues:** Report bugs via [Discord (Community)](https://community.xpenology.tech)
-
----
 
 ## License
 
