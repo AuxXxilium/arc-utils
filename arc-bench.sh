@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.10"
+VERSION="1.6.11"
 
 function run_fio_test {
     local test_name=$1
@@ -59,7 +59,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /READ: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2]) {
-                        printf "  Sequential Read: %s\n", format_speed(arr[1], arr[2]);
+                        printf "  %-20s %s\n", "Sequential Read:", format_speed(arr[1], arr[2]);
                         found = 1;
                     }
                 }
@@ -67,7 +67,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /WRITE: bw=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2]) {
-                        printf "  Sequential Write: %s\n", format_speed(arr[1], arr[2]);
+                        printf "  %-20s %s\n", "Sequential Write:", format_speed(arr[1], arr[2]);
                         found = 1;
                     }
                 }
@@ -75,7 +75,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /read: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        printf "  Random Read: %s, IOPS: %s\n", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
+                        printf "  %-20s %s, IOPS: %s\n", "Random Read:", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -83,7 +83,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        printf "  Random Write: %s, IOPS: %s\n", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
+                        printf "  %-20s %s, IOPS: %s\n", "Random Write:", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -136,7 +136,9 @@ function run_storage_test {
     fi
 
     printf "\n"
-    result="Direct Storage Test Result:\n  Read Speed: ${speed} MiB/s"
+    result="Direct Storage Test Result:\n"
+    append_kv_line result "Read Speed:" "${speed} MiB/s"
+    result="${result%$'\n'}"
     printf "%b\n" "$result"
     append_result_section "$result"
 }
@@ -252,11 +254,14 @@ function run_gpu_benchmark {
     fi
 
     if [ -n "$speed" ]; then
+        gpu_result="GPU Benchmark Results:\n"
         if [ "$first_encoder" != "$encoder" ]; then
-            append_result "GPU Benchmark Result: ${speed} (${encoder}, fallback from ${first_encoder})"
+            append_kv_line gpu_result "Speed:" "${speed} (${encoder}, fallback from ${first_encoder})"
         else
-            append_result "GPU Benchmark Result: ${speed} (${encoder})"
+            append_kv_line gpu_result "Speed:" "${speed} (${encoder})"
         fi
+        gpu_result="${gpu_result%$'\n'}"
+        append_result "$gpu_result"
     else
         append_result "GPU Benchmark not possible."
     fi
@@ -267,25 +272,48 @@ function append_result() {
     append_result_section "$1"
 }
 
+function append_kv_line() {
+    local target_name=$1
+    local key=$2
+    local value=$3
+    local line
+    printf -v line "  %-20s %s\n" "$key" "$value"
+    printf -v "$target_name" '%s%s' "${!target_name}" "$line"
+}
+
 function run_cpu_benchmark {
     printf "Running CPU benchmark...\n"
 
     # Get number of logical processors (threads)
     THREADS=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
 
-    # Single-core test: CPU intensive calculation
+    # Single-core test: run two passes and keep the faster one.
+    # This avoids external CPU pinning tools like taskset.
     printf "Running single-core test...\n"
-    SINGLE_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
 
-    # Perform CPU-intensive calculations
+    SINGLE_START_A=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     i=0
     while [ $i -lt 500000 ]; do
         result=$((i * i * i / (i + 1)))
         i=$((i + 1))
     done
+    SINGLE_END_A=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    SINGLE_TIME_A=$(( (SINGLE_END_A - SINGLE_START_A) / 1000000 ))
 
-    SINGLE_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
-    SINGLE_TIME=$(( (SINGLE_END - SINGLE_START) / 1000000 ))  # Convert to milliseconds
+    SINGLE_START_B=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    i=0
+    while [ $i -lt 500000 ]; do
+        result=$((i * i * i / (i + 1)))
+        i=$((i + 1))
+    done
+    SINGLE_END_B=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
+    SINGLE_TIME_B=$(( (SINGLE_END_B - SINGLE_START_B) / 1000000 ))
+
+    if [ "$SINGLE_TIME_A" -le "$SINGLE_TIME_B" ]; then
+        SINGLE_TIME=$SINGLE_TIME_A
+    else
+        SINGLE_TIME=$SINGLE_TIME_B
+    fi
 
     # Multi-core test: Run parallel processes
     printf "Running multi-core test (%s threads)...\n" "$THREADS"
@@ -401,23 +429,23 @@ elif lspci -d ::300 2>/dev/null | grep -qi "AMD\|Advanced Micro Devices"; then
 fi
 
 # Build system information in variable
-BENCHMARK_RESULTS="Arc Benchmark ${VERSION}\n\n"
-BENCHMARK_RESULTS+="System Information:\n"
-BENCHMARK_RESULTS+="  CPU: ${CPU}\n"
-BENCHMARK_RESULTS+="  Cores: ${CORES_DISPLAY}\n"
-[ "$IGPU_BENCHMARK" == "Y" ] && [ -n "$GPU_MODEL" ] && BENCHMARK_RESULTS+="  GPU: ${GPU_MODEL}\n"
-BENCHMARK_RESULTS+="  RAM: ${RAM}\n"
-BENCHMARK_RESULTS+="  Loader: ${ARC}\n"
-BENCHMARK_RESULTS+="  Model: ${MODEL}\n"
-BENCHMARK_RESULTS+="  Kernel: ${KERNEL}\n"
-BENCHMARK_RESULTS+="  System: ${SYSTEM}\n"
+BENCHMARK_RESULTS="System Information:\n"
+append_kv_line BENCHMARK_RESULTS "CPU:" "${CPU}"
+append_kv_line BENCHMARK_RESULTS "Cores:" "${CORES_DISPLAY}"
+[ "$IGPU_BENCHMARK" == "Y" ] && [ -n "$GPU_MODEL" ] && append_kv_line BENCHMARK_RESULTS "GPU:" "${GPU_MODEL}"
+append_kv_line BENCHMARK_RESULTS "RAM:" "${RAM}"
+append_kv_line BENCHMARK_RESULTS "Loader:" "${ARC}"
+append_kv_line BENCHMARK_RESULTS "Model:" "${MODEL}"
+append_kv_line BENCHMARK_RESULTS "Kernel:" "${KERNEL}"
+append_kv_line BENCHMARK_RESULTS "System:" "${SYSTEM}"
 if [ "$STORAGE_BENCH" == "Y" ]; then
-    BENCHMARK_RESULTS+="  Disk Path: ${DEVICE}\n"
-    BENCHMARK_RESULTS+="  Filesystem: ${FILESYSTEM}\n"
+    append_kv_line BENCHMARK_RESULTS "Disk Path:" "${DEVICE}"
+    append_kv_line BENCHMARK_RESULTS "Filesystem:" "${FILESYSTEM}"
 fi
 BENCHMARK_RESULTS+="\n"
 
 # Display system info to console
+printf "\n"
 printf "%b" "$BENCHMARK_RESULTS"
 
 # Track appended benchmark sections (storage, GPU, CPU) to keep exactly one blank line between them
@@ -476,7 +504,9 @@ if [ "$CPU_BENCH" == "Y" ]; then
     run_cpu_benchmark
     cpu_results="CPU Benchmark Results:\n"
     if [[ -n $CPU_SCORE_SINGLE && -n $CPU_SCORE_MULTI ]]; then
-        cpu_results+="  Single Core: ${CPU_SCORE_SINGLE}\n  Multi Core:  ${CPU_SCORE_MULTI}"
+        append_kv_line cpu_results "Single Core:" "${CPU_SCORE_SINGLE}"
+        append_kv_line cpu_results "Multi Core:" "${CPU_SCORE_MULTI}"
+        cpu_results="${cpu_results%$'\n'}"
     else
         cpu_results+="CPU benchmark failed or not run."
     fi
@@ -498,9 +528,9 @@ else
         webhook_url="https://arc.auxxxilium.tech/bench"
         read -p "Enter your username: " username
         [ -z "$username" ] && username="Anonymous"
-        # Format message with username and results (bench.php will wrap in code blocks)
+        # Add Discord-only headline above benchmark output.
         formatted_results=$(printf "%b" "$BENCHMARK_RESULTS")
-        message="Benchmark from ${username}"$'\n---\n'"${formatted_results}"
+        printf -v message "Benchmark from %s\n---\nArc Benchmark %s\n\n%s" "$username" "$VERSION" "$formatted_results"
         json_content=$(jq -nc --arg c "$message" '{content: $c}')
         response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
         if echo "$response" | grep -q '"status":"sent"'; then
