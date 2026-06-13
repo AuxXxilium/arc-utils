@@ -65,7 +65,7 @@ How-to use:
 Benchmark:
 - Storage read speed test using hdparm for quick disk performance estimation
 - Storage I/O performance test using fio across multiple read/write scenarios
-- Hardware transcoding performance test using [FFmpeg 8](./apps) (if iGPU/GPU is available)
+- Hardware transcoding performance test using [VCRT](./apps) (if iGPU/GPU is available)
 - CPU performance test using local cpu benchmark solution
 
 This needs to run as 'root' (Usage at own risk):
@@ -79,9 +79,9 @@ curl -fsSL https://bench.xpenology.tech -o /root/bench.sh && chmod +x /root/benc
 
 ---
 
-## FFmpeg 8
+## VCRT (Video Compute Runtime)
 
-Complete audio/video solution with hardware acceleration support for Synology DSM.
+Complete audio/video transcoding and compute solution with hardware acceleration support for Synology DSM.
 
 Features:
 - NVIDIA NVENC/NVDEC hardware acceleration
@@ -91,19 +91,6 @@ Features:
 - High-performance video encoding/decoding for transcoding and streaming
 
 For build instructions and installation details, see the [Apps](./apps).
-
----
-
-## SynoCli Videodriver
-
-Provides headless video driver support, including Intel Quick Sync for Intel CPU iGPU Gen6-Gen12+, plus Vulkan and OpenCL (Intel only).
-
-Features:
-- Intel Quick Sync Video (QSV)
-- VAAPI support
-- Vulkan and OpenCL
-
-For installation details, see the [Apps](./apps).
 
 ---
 

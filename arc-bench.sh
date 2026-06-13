@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.11"
+VERSION="1.6.12"
 
 function run_fio_test {
     local test_name=$1
@@ -75,7 +75,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /read: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        printf "  %-20s %s, IOPS: %s\n", "Random Read:", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
+                        printf "  %-20s %s\n  %-20s %s\n", "Random Read:", format_speed(arr[2], arr[3]), "IOPS:", format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -83,7 +83,7 @@ function fio_summary {
                 if (!found) {
                     match($0, /write: IOPS=([0-9.]+[kKmM]?)[[:space:]]*,[[:space:]]*BW=([0-9.]+)([GMK]i?B\/s)/, arr);
                     if (arr[1] && arr[2] && arr[3]) {
-                        printf "  %-20s %s, IOPS: %s\n", "Random Write:", format_speed(arr[2], arr[3]), format_iops_token(arr[1]);
+                        printf "  %-20s %s\n  %-20s %s\n", "Random Write:", format_speed(arr[2], arr[3]), "IOPS:", format_iops_token(arr[1]);
                         found = 1;
                     }
                 }
@@ -147,11 +147,11 @@ function run_gpu_benchmark {
     local bench_file="/tmp/bench.mp4"
     local encoder=""
     local ffmpeg_cmd=""
-    local ffmpeg_bin="/var/packages/ffmpeg8/target/bin/ffmpeg"
+    local ffmpeg_bin="/var/packages/vcrt/target/bin/ffmpeg"
 
     # Check if ffmpeg is available
     if ! command -v "$ffmpeg_bin" &>/dev/null; then
-        local error_msg="FFmpeg8 not found or not executable. Skipping GPU benchmark."
+        local error_msg="VCRT not found or not executable. Skipping GPU benchmark."
         printf "%s\n" "$error_msg"
         append_result_section "$error_msg"
         return
@@ -184,6 +184,10 @@ function run_gpu_benchmark {
 
     # Detect GPU and select encoder
     if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
+        if [ ! -d "/var/packages/NVIDIARuntimeLibrary" ]; then
+            append_result "NVIDIA GPU detected but NVIDIARuntimeLibrary package is not installed. Skipping GPU benchmark."
+            return
+        fi
         if [ "$has_nvenc" = "yes" ]; then
             encoder="h264_nvenc"
             ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -f null -"
@@ -201,7 +205,7 @@ function run_gpu_benchmark {
                 return
             fi
         else
-            append_result "Intel GPU detected but no hardware encoder available in FFmpeg."
+            append_result "Intel GPU detected but no hardware encoder available in VCRT."
             return
         fi
     elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
@@ -211,7 +215,7 @@ function run_gpu_benchmark {
                 return
             fi
         else
-            append_result "AMD GPU detected but VAAPI not available in FFmpeg."
+            append_result "AMD GPU detected but VAAPI not available in VCRT."
             return
         fi
     else
@@ -354,7 +358,7 @@ function run_cpu_benchmark {
 }
 
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
-printf "This script will check your storage (hdparm, fio), CPU (local benchmark) and GPU (FFmpeg) performance. Use at your own risk.\n\n"
+printf "This script will check your storage (hdparm, fio), CPU (local benchmark) and GPU (ffmpeg8 via VCRT) performance. Use at your own risk.\n\n"
 
 rm -f /tmp/igpu_benchmark.txt
 
@@ -378,13 +382,24 @@ CPU_BENCH="${input:-$CPU_BENCH}"
 CPU_BENCH="${CPU_BENCH^^}"  # Convert to uppercase
 
 if lspci -d ::300 | grep -qi 'Intel\|NVIDIA\|AMD' &>/dev/null; then
-    if command -v /var/packages/ffmpeg8/target/bin/ffmpeg &>/dev/null; then
-        printf "Compatible GPU detected and FFmpeg8 found.\n"
-        read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
-        IGPU_BENCHMARK="${input:-y}"
-        IGPU_BENCHMARK="${IGPU_BENCHMARK^^}"  # Convert to uppercase
+    if command -v /var/packages/vcrt/target/bin/ffmpeg &>/dev/null; then
+        _nvidia_ok=true
+        if lspci -d ::300 | grep -qi "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
+            if [ ! -d "/var/packages/NVIDIARuntimeLibrary" ]; then
+                printf "NVIDIA GPU detected but NVIDIARuntimeLibrary package is not installed. Skipping GPU benchmark.\n"
+                _nvidia_ok=false
+            fi
+        fi
+        if $_nvidia_ok; then
+            printf "Compatible GPU detected and VCRT found.\n"
+            read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
+            IGPU_BENCHMARK="${input:-y}"
+            IGPU_BENCHMARK="${IGPU_BENCHMARK^^}"  # Convert to uppercase
+        else
+            IGPU_BENCHMARK="N"
+        fi
     else
-        printf "Compatible GPU detected but FFmpeg8 not found.\n"
+        printf "Compatible GPU detected but VCRT not found.\n"
         IGPU_BENCHMARK="N"
     fi
 else
@@ -528,9 +543,11 @@ else
         webhook_url="https://arc.auxxxilium.tech/bench"
         read -p "Enter your username: " username
         [ -z "$username" ] && username="Anonymous"
+        HOSTNAME_VAL="$(cat /etc/hostname 2>/dev/null | xargs)"
+        display_name="${username}${HOSTNAME_VAL:+ @ ${HOSTNAME_VAL}}"
         # Add Discord-only headline above benchmark output.
         formatted_results=$(printf "%b" "$BENCHMARK_RESULTS")
-        printf -v message "Benchmark from %s\n---\nArc Benchmark %s\n\n%s" "$username" "$VERSION" "$formatted_results"
+        printf -v message "Benchmark from %s\n---\nArc Benchmark %s\n\n%s" "$display_name" "$VERSION" "$formatted_results"
         json_content=$(jq -nc --arg c "$message" '{content: $c}')
         response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
         if echo "$response" | grep -q '"status":"sent"'; then
