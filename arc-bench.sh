@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.14"
+VERSION="1.6.15"
 
 # Hash benchmark tuning.
 # The divisors map openssl throughput (kB/s) into the same score range as the
@@ -152,10 +152,164 @@ function run_storage_test {
     append_result_section "$result"
 }
 
+# Normalise a vendor string (or PCI vendor id) to NVIDIA / Intel / AMD.
+# Prints nothing and returns 1 for anything else.
+function normalize_gpu_vendor {
+    case "$1" in
+        *NVIDIA*|*nVidia*|*nvidia*|0x10de|10de) printf "NVIDIA" ;;
+        *Intel*|*intel*|0x8086|8086)            printf "Intel" ;;
+        *AMD*|*amd*|*"Advanced Micro Devices"*|*ATI*|*ati*|0x1002|1002|0x1022|1022) printf "AMD" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Strip the vendor prefix and the trailing "(rev xx)" from an lspci device name.
+function clean_gpu_model {
+    printf "%s" "$1" | sed -e 's/.*\[AMD\/ATI\] //' \
+                           -e 's/.*Advanced Micro Devices[^]]*, Inc\.[[:space:]]*//' \
+                           -e 's/.*NVIDIA Corporation[[:space:]]*//' \
+                           -e 's/.*Intel Corporation[[:space:]]*//' \
+                           -e 's/ (rev[^)]*)//' | xargs
+}
+
+# List every GPU as "<pci_slot>|<vendor>|<model>", one per line, deduplicated.
+#
+# No PCI class filter is used: some boards expose GPUs under unexpected classes
+# (or none at all), so every PCI device is inspected and anything that looks
+# like a display/graphics device from a known vendor is accepted. sysfs is the
+# primary source because its class codes are authoritative and it works without
+# lspci; lspci is used to enrich the model names and to catch devices sysfs
+# does not expose. DRM render nodes are scanned last so a GPU with a bound
+# driver is found even if both previous passes missed it.
+function list_gpus {
+    {
+        local dev slot class vendor_id vendor model name
+
+        # Pass 1: every PCI device in sysfs, filtered by class + vendor.
+        for dev in /sys/bus/pci/devices/*; do
+            [ -d "$dev" ] || continue
+            slot="${dev##*/}"
+            class=$(cat "$dev/class" 2>/dev/null)
+            # Class 0x03xxxx is the display controller base class; accept every
+            # subclass (VGA, 3D, display, and anything vendors invent later).
+            [ "${class:0:4}" = "0x03" ] || continue
+            vendor_id=$(cat "$dev/vendor" 2>/dev/null)
+            vendor=$(normalize_gpu_vendor "$vendor_id") || continue
+            model=""
+            if command -v lspci &>/dev/null; then
+                name=$(lspci -s "$slot" 2>/dev/null | head -1)
+                name="${name#* }"
+                name="${name#*: }"
+                model=$(clean_gpu_model "$name")
+            fi
+            printf "%s|%s|%s\n" "$slot" "$vendor" "$model"
+        done
+
+        # Pass 2: lspci without a class filter, matching on the device-class
+        # text instead. Catches devices missing from sysfs.
+        if command -v lspci &>/dev/null; then
+            while IFS= read -r line; do
+                [ -z "$line" ] && continue
+                slot="${line%% *}"
+                name="${line#* }"
+                case "$name" in
+                    VGA*|3D*|Display*) ;;
+                    *) continue ;;
+                esac
+                name="${name#*: }"
+                vendor=$(normalize_gpu_vendor "$name") || continue
+                case "$slot" in
+                    *:*:*) ;;
+                    *) slot="0000:${slot}" ;;
+                esac
+                printf "%s|%s|%s\n" "$slot" "$vendor" "$(clean_gpu_model "$name")"
+            done < <(lspci 2>/dev/null)
+        fi
+
+        # Pass 3: anything with a DRM render node and a driver bound.
+        for dev in /dev/dri/renderD*; do
+            [ -e "$dev" ] || continue
+            local pci_path
+            pci_path=$(readlink -f "/sys/class/drm/${dev##*/}/device" 2>/dev/null)
+            [ -n "$pci_path" ] && [ -r "$pci_path/vendor" ] || continue
+            slot="${pci_path##*/}"
+            vendor=$(normalize_gpu_vendor "$(cat "$pci_path/vendor" 2>/dev/null)") || continue
+            model=""
+            if command -v lspci &>/dev/null; then
+                name=$(lspci -s "$slot" 2>/dev/null | head -1)
+                name="${name#* }"
+                name="${name#*: }"
+                model=$(clean_gpu_model "$name")
+            fi
+            printf "%s|%s|%s\n" "$slot" "$vendor" "$model"
+        done
+    } | awk -F'|' '
+        # One entry per PCI slot, keeping whichever pass produced the most
+        # descriptive model name.
+        !($1 in line) || length($3) > length(model[$1]) { line[$1] = $0; model[$1] = $3 }
+        END { for (slot in line) print line[slot] }
+    ' | sort -t'|' -k1,1
+}
+
+# Resolve the DRM render node (/dev/dri/renderD*) belonging to a PCI slot.
+# Falls back to empty when the GPU has no render node (e.g. no driver bound).
+function render_node_for_slot {
+    local slot="$1"
+    local node pci_path
+
+    # lspci prints "00:02.0"; sysfs uses the full "0000:00:02.0" domain form.
+    case "$slot" in
+        *:*:*) ;;
+        *) slot="0000:${slot}" ;;
+    esac
+
+    for node in /dev/dri/renderD*; do
+        [ -e "$node" ] || continue
+        pci_path=$(readlink -f "/sys/class/drm/${node##*/}/device" 2>/dev/null)
+        [ "${pci_path##*/}" = "$slot" ] && printf "%s" "$node" && return 0
+    done
+    return 1
+}
+
+# Any render node not claimed by a specific slot, used as a last resort.
+function any_render_node {
+    local node
+    for node in /dev/dri/renderD*; do
+        [ -e "$node" ] && printf "%s" "$node" && return 0
+    done
+    return 1
+}
+
+function ensure_bench_file {
+    local bench_file="$1"
+    [ -f "$bench_file" ] && return 0
+
+    printf "Downloading bench.mp4...\n"
+    curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file" 2>&1
+    if [ $? -ne 0 ] || [ ! -f "$bench_file" ]; then
+        printf "Failed to download bench.mp4. Skipping GPU benchmark.\n"
+        rm -f "$bench_file" 2>/dev/null
+        return 1
+    fi
+    # Verify the file is not empty and has reasonable size
+    local file_size=$(stat -f%z "$bench_file" 2>/dev/null || stat -c%s "$bench_file" 2>/dev/null)
+    if [ -z "$file_size" ] || [ "$file_size" -lt 1048576 ]; then  # Less than 1MB = likely incomplete
+        printf "Downloaded bench.mp4 appears to be incomplete or corrupted (size: %s bytes). Skipping GPU benchmark.\n" "$file_size"
+        rm -f "$bench_file" 2>/dev/null
+        return 1
+    fi
+    return 0
+}
+
+# Run one ffmpeg transcode and echo the reported speed (empty on failure).
+function ffmpeg_speed {
+    local ffmpeg_bin="$1"
+    shift
+    "$ffmpeg_bin" "$@" 2>&1 | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}'
+}
+
 function run_gpu_benchmark {
     local bench_file="/tmp/bench.mp4"
-    local encoder=""
-    local ffmpeg_cmd=""
     local ffmpeg_bin="/var/packages/vcrt/target/bin/ffmpeg"
 
     # Check if ffmpeg is available
@@ -167,112 +321,121 @@ function run_gpu_benchmark {
     fi
 
     # Check available encoders
-    local has_nvenc=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_nvenc" && echo "yes" || echo "no")
-    local has_qsv=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_qsv" && echo "yes" || echo "no")
-    local has_vaapi=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null | grep -q "h264_vaapi" && echo "yes" || echo "no")
+    local encoders=$($ffmpeg_bin -hide_banner -encoders 2>/dev/null)
+    local has_nvenc=$(printf "%s" "$encoders" | grep -q "h264_nvenc" && echo "yes" || echo "no")
+    local has_qsv=$(printf "%s" "$encoders" | grep -q "h264_qsv" && echo "yes" || echo "no")
+    local has_vaapi=$(printf "%s" "$encoders" | grep -q "h264_vaapi" && echo "yes" || echo "no")
 
-    # Function to find available VAAPI render device
-    find_vaapi_device() {
-        local render_device=""
-        for device in /dev/dri/renderD*; do
-            [ -e "$device" ] && render_device="$device" && break
-        done
-        echo "$render_device"
-    }
+    local gpus=()
+    while IFS= read -r gpu; do
+        [ -n "$gpu" ] && gpus+=("$gpu")
+    done < <(list_gpus)
 
-    # Function to setup VAAPI encoder
-    setup_vaapi_encoder() {
-        local vaapi_device=$(find_vaapi_device)
-        if [ -z "$vaapi_device" ]; then
-            return 1
-        fi
-        encoder="h264_vaapi"
-        ffmpeg_cmd="-init_hw_device vaapi=va:${vaapi_device} -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va -i $bench_file -c:v h264_vaapi -global_quality 25 -f null -"
-        return 0
-    }
-
-    # Detect GPU and select encoder
-    if lspci -d ::300 | grep -i "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
-        if [ ! -d "/var/packages/NVIDIARuntimeLibrary" ]; then
-            append_result "NVIDIA GPU detected but NVIDIARuntimeLibrary package is not installed. Skipping GPU benchmark."
-            return
-        fi
-        if [ "$has_nvenc" = "yes" ]; then
-            encoder="h264_nvenc"
-            ffmpeg_cmd="-hwaccel cuda -hwaccel_output_format cuda -c:v h264_cuvid -i $bench_file -c:v h264_nvenc -preset p4 -f null -"
-        else
-            append_result "NVIDIA GPU detected but NVENC not available in FFmpeg."
-            return
-        fi
-    elif lspci -d ::300 | grep -i "Intel" &>/dev/null; then
-        if [ "$has_qsv" = "yes" ]; then
-            encoder="h264_qsv"
-            ffmpeg_cmd="-init_hw_device qsv=hw -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i $bench_file -c:v h264_qsv -preset medium -global_quality 25 -f null -"
-        elif [ "$has_vaapi" = "yes" ]; then
-            if ! setup_vaapi_encoder; then
-                append_result "Intel GPU detected but VAAPI device not found."
-                return
-            fi
-        else
-            append_result "Intel GPU detected but no hardware encoder available in VCRT."
-            return
-        fi
-    elif lspci -d ::300 | grep -i "AMD" &>/dev/null; then
-        if [ "$has_vaapi" = "yes" ]; then
-            if ! setup_vaapi_encoder; then
-                append_result "AMD GPU detected but VAAPI device not found in /dev/dri/renderD*."
-                return
-            fi
-        else
-            append_result "AMD GPU detected but VAAPI not available in VCRT."
-            return
-        fi
-    else
+    if [ ${#gpus[@]} -eq 0 ]; then
         printf "No compatible GPU detected. Skipping GPU benchmark.\n"
         return
     fi
 
-    if [ ! -f "$bench_file" ]; then
-        printf "Downloading bench.mp4...\n"
-        curl -skL "https://github.com/AuxXxilium/arc-utils/raw/refs/heads/main/bench/bench.mp4" -o "$bench_file" 2>&1
-        if [ $? -ne 0 ] || [ ! -f "$bench_file" ]; then
-            printf "Failed to download bench.mp4. Skipping GPU benchmark.\n"
-            rm -f "$bench_file" 2>/dev/null
-            return
+    ensure_bench_file "$bench_file" || return
+
+    local gpu_result="GPU Benchmark Results:\n"
+    local any_success="no"
+    local index=0
+
+    # Number identically named cards (#1, #2, ...) so their rows stay distinct
+    # without exposing PCI slots.
+    local -A name_count=()
+    local entry slot vendor model label node speed encoder used_encoder note
+    for entry in "${gpus[@]}"; do
+        IFS='|' read -r slot vendor model <<< "$entry"
+        label="$vendor ${model:-GPU}"
+        name_count["$label"]=$(( ${name_count["$label"]:-0} + 1 ))
+    done
+
+    local -A name_seen=()
+    for entry in "${gpus[@]}"; do
+        index=$((index + 1))
+        IFS='|' read -r slot vendor model <<< "$entry"
+        label="$vendor ${model:-GPU}"
+        if [ "${name_count["$label"]}" -gt 1 ]; then
+            name_seen["$label"]=$(( ${name_seen["$label"]:-0} + 1 ))
+            label="$label #${name_seen["$label"]}"
         fi
-        # Verify the file is not empty and has reasonable size
-        local file_size=$(stat -f%z "$bench_file" 2>/dev/null || stat -c%s "$bench_file" 2>/dev/null)
-        if [ -z "$file_size" ] || [ "$file_size" -lt 1048576 ]; then  # Less than 1MB = likely incomplete
-            printf "Downloaded bench.mp4 appears to be incomplete or corrupted (size: %s bytes). Skipping GPU benchmark.\n" "$file_size"
-            rm -f "$bench_file" 2>/dev/null
-            return
-        fi
-    fi
 
-    printf "Running GPU Benchmark with %s...\n" "$encoder"
-    local ffmpeg_output
-    local first_encoder="$encoder"
-    ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
+        printf "\nTesting GPU %d/%d: %s\n" "$index" "${#gpus[@]}" "$label"
 
-    # Extract the final speed value from ffmpeg output
-    local speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
+        speed=""
+        used_encoder=""
+        note=""
+        node=$(render_node_for_slot "$slot")
 
-    # If QSV failed and VAAPI is available, retry with VAAPI
-    if [ -z "$speed" ] && [ "$encoder" = "h264_qsv" ] && [ "$has_vaapi" = "yes" ]; then
-        printf "QSV failed, retrying with VAAPI fallback...\n"
-        if setup_vaapi_encoder; then
-            ffmpeg_output=$($ffmpeg_bin $ffmpeg_cmd 2>&1)
-            speed=$(echo "$ffmpeg_output" | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}')
-        fi
-    fi
-
-    if [ -n "$speed" ]; then
-        gpu_result="GPU Benchmark Results:\n"
-        if [ "$first_encoder" != "$encoder" ]; then
-            append_kv_line gpu_result "Speed:" "${speed} (${encoder}, fallback from ${first_encoder})"
+        if [ "$vendor" = "NVIDIA" ]; then
+            if ! command -v nvidia-smi &>/dev/null; then
+                note="nvidia-smi not available"
+            elif [ "$has_nvenc" != "yes" ]; then
+                note="NVENC not available in VCRT"
+            else
+                encoder="h264_nvenc"
+                printf "Running GPU Benchmark with %s...\n" "$encoder"
+                speed=$(ffmpeg_speed "$ffmpeg_bin" -hwaccel cuda -hwaccel_output_format cuda \
+                    -c:v h264_cuvid -i "$bench_file" -c:v h264_nvenc -preset p4 -f null -)
+                [ -n "$speed" ] && used_encoder="$encoder"
+            fi
         else
-            append_kv_line gpu_result "Speed:" "${speed} (${encoder})"
+            # Intel and AMD: try QSV first (Intel only), then VAAPI on the
+            # render node that belongs to this specific card.
+            [ -z "$node" ] && [ ${#gpus[@]} -eq 1 ] && node=$(any_render_node)
+
+            if [ "$vendor" = "Intel" ] && [ "$has_qsv" = "yes" ]; then
+                encoder="h264_qsv"
+                printf "Running GPU Benchmark with %s...\n" "$encoder"
+                if [ -n "$node" ]; then
+                    speed=$(ffmpeg_speed "$ffmpeg_bin" -init_hw_device "qsv=hw,child_device=$node" \
+                        -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i "$bench_file" \
+                        -c:v h264_qsv -preset medium -global_quality 25 -f null -)
+                else
+                    speed=$(ffmpeg_speed "$ffmpeg_bin" -init_hw_device qsv=hw \
+                        -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i "$bench_file" \
+                        -c:v h264_qsv -preset medium -global_quality 25 -f null -)
+                fi
+                [ -n "$speed" ] && used_encoder="$encoder"
+            fi
+
+            if [ -z "$speed" ] && [ "$has_vaapi" = "yes" ] && [ -n "$node" ]; then
+                encoder="h264_vaapi"
+                [ -n "$used_encoder" ] || [ "$vendor" != "Intel" ] || printf "QSV failed, retrying with VAAPI fallback...\n"
+                printf "Running GPU Benchmark with %s on %s...\n" "$encoder" "$node"
+                speed=$(ffmpeg_speed "$ffmpeg_bin" -init_hw_device "vaapi=va:$node" \
+                    -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va \
+                    -i "$bench_file" -c:v h264_vaapi -global_quality 25 -f null -)
+                if [ -n "$speed" ]; then
+                    if [ "$vendor" = "Intel" ] && [ "$has_qsv" = "yes" ]; then
+                        used_encoder="$encoder, fallback from h264_qsv"
+                    else
+                        used_encoder="$encoder"
+                    fi
+                fi
+            fi
+
+            if [ -z "$speed" ] && [ -z "$note" ]; then
+                if [ "$has_qsv" != "yes" ] && [ "$has_vaapi" != "yes" ]; then
+                    note="no hardware encoder available in VCRT"
+                elif [ -z "$node" ]; then
+                    note="no VAAPI render device found for this GPU"
+                fi
+            fi
         fi
+
+        if [ -n "$speed" ]; then
+            any_success="yes"
+            append_kv_line gpu_result "${label}:" "${speed} (${used_encoder})"
+        else
+            [ -z "$note" ] && note="benchmark failed"
+            append_kv_line gpu_result "${label}:" "not possible (${note})"
+        fi
+    done
+
+    if [ "$any_success" = "yes" ]; then
         gpu_result="${gpu_result%$'\n'}"
         append_result "$gpu_result"
     else
@@ -354,8 +517,13 @@ function run_cpu_benchmark {
     # Get number of logical processors (threads)
     THREADS=$(nproc 2>/dev/null || grep -c processor /proc/cpuinfo)
 
-    # Single-core test: run two passes and keep the faster one.
-    # This avoids external CPU pinning tools like taskset.
+    local have_openssl="no"
+    command -v openssl &>/dev/null && have_openssl="yes"
+    local hash_single hash_multi
+
+    # Single-core step: arithmetic loop plus the single-threaded hash test.
+    # The arithmetic part runs two passes and keeps the faster one, which
+    # avoids external CPU pinning tools like taskset.
     printf "Running single-core test...\n"
 
     SINGLE_START_A=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
@@ -382,7 +550,9 @@ function run_cpu_benchmark {
         SINGLE_TIME=$SINGLE_TIME_B
     fi
 
-    # Multi-core test: Run parallel processes
+    [ "$have_openssl" = "yes" ] && hash_single=$(hash_score_single)
+
+    # Multi-core step: parallel arithmetic loops plus the threaded hash test.
     printf "Running multi-core test (%s threads)...\n" "$THREADS"
     MULTI_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
 
@@ -407,6 +577,10 @@ function run_cpu_benchmark {
     MULTI_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     MULTI_TIME=$(( (MULTI_END - MULTI_START) / 1000000 ))  # Convert to milliseconds
 
+    if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ]; then
+        hash_multi=$(hash_score_multi)
+    fi
+
     # Calculate scores (lower time = higher score)
     # Base score of 1000, adjusted by time taken
     if [ $SINGLE_TIME -gt 0 ] && [ $MULTI_TIME -gt 0 ]; then
@@ -418,27 +592,17 @@ function run_cpu_benchmark {
         return 1
     fi
 
-    # Hash benchmark (sha256 + md5). Blended into the scores above so the final
-    # numbers stay in the same range while covering integer and crypto load.
-    if command -v openssl &>/dev/null; then
-        printf "Running hash test (sha256, md5)...\n"
-        local hash_single hash_multi
-        hash_single=$(hash_score_single)
-        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ]; then
-            printf "Running hash test multi-core (%s threads)...\n" "$THREADS"
-            hash_multi=$(hash_score_multi)
-        fi
-
-        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ] && \
-           [ -n "$hash_multi" ] && [ "$hash_multi" -gt 0 ]; then
-            CPU_SCORE_SINGLE=$(( (CPU_SCORE_SINGLE + hash_single) / 2 ))
-            CPU_SCORE_MULTI=$(( (CPU_SCORE_MULTI + hash_multi) / 2 ))
-            CPU_HASH_USED="yes"
-        else
-            printf "Hash test unavailable, using arithmetic scores only.\n"
-        fi
-    else
+    # Blend the hash results into the scores above so the final numbers stay in
+    # the same range while covering both integer and crypto load.
+    if [ "$have_openssl" != "yes" ]; then
         printf "openssl not found, skipping hash test.\n"
+    elif [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ] && \
+         [ -n "$hash_multi" ] && [ "$hash_multi" -gt 0 ]; then
+        CPU_SCORE_SINGLE=$(( (CPU_SCORE_SINGLE + hash_single) / 2 ))
+        CPU_SCORE_MULTI=$(( (CPU_SCORE_MULTI + hash_multi) / 2 ))
+        CPU_HASH_USED="yes"
+    else
+        printf "Hash test unavailable, using arithmetic scores only.\n"
     fi
 
     return 0
@@ -468,17 +632,34 @@ read -p "Run CPU benchmark (y or n to skip) [default: y]: " input
 CPU_BENCH="${input:-$CPU_BENCH}"
 CPU_BENCH="${CPU_BENCH^^}"  # Convert to uppercase
 
-if lspci -d ::300 | grep -qi 'Intel\|NVIDIA\|AMD' &>/dev/null; then
+DETECTED_GPUS=()
+while IFS= read -r _gpu; do
+    [ -n "$_gpu" ] && DETECTED_GPUS+=("$_gpu")
+done < <(list_gpus)
+
+if [ ${#DETECTED_GPUS[@]} -gt 0 ]; then
     if command -v /var/packages/vcrt/target/bin/ffmpeg &>/dev/null; then
-        _nvidia_ok=true
-        if lspci -d ::300 | grep -qi "NVIDIA" &>/dev/null && command -v nvidia-smi &>/dev/null; then
-            if [ ! -d "/var/packages/NVIDIARuntimeLibrary" ]; then
-                printf "NVIDIA GPU detected but NVIDIARuntimeLibrary package is not installed. Skipping GPU benchmark.\n"
-                _nvidia_ok=false
+        # Only block when NVIDIA is the *only* GPU present; with more cards the
+        # remaining ones can still be benchmarked.
+        _usable_gpus=0
+        for _gpu in "${DETECTED_GPUS[@]}"; do
+            IFS='|' read -r _slot _vendor _model <<< "$_gpu"
+            if [ "$_vendor" = "NVIDIA" ] && ! command -v nvidia-smi &>/dev/null; then
+                printf "NVIDIA GPU detected (%s) but nvidia-smi is not available. It will be skipped.\n" "${_model:-GPU}"
+                continue
             fi
-        fi
-        if $_nvidia_ok; then
-            printf "Compatible GPU detected and VCRT found.\n"
+            _usable_gpus=$((_usable_gpus + 1))
+        done
+        if [ "$_usable_gpus" -gt 0 ]; then
+            if [ ${#DETECTED_GPUS[@]} -gt 1 ]; then
+                printf "%d compatible GPUs detected and VCRT found:\n" "${#DETECTED_GPUS[@]}"
+                for _gpu in "${DETECTED_GPUS[@]}"; do
+                    IFS='|' read -r _slot _vendor _model <<< "$_gpu"
+                    printf "  %s %s\n" "$_vendor" "${_model:-GPU}"
+                done
+            else
+                printf "Compatible GPU detected and VCRT found.\n"
+            fi
             read -p "Run GPU benchmark (y or n to skip) [default: y]: " input
             IGPU_BENCHMARK="${input:-y}"
             IGPU_BENCHMARK="${IGPU_BENCHMARK^^}"  # Convert to uppercase
@@ -509,6 +690,8 @@ ARC="$(grep "LVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr 
 MODEL="$(cat /etc.defaults/synoinfo.conf 2>/dev/null | grep "unique" | awk -F= '{print $2}' | tr -d '"' | xargs)"
 [ -z "$MODEL" ] && MODEL="Unknown"
 KERNEL="$(uname -r)"
+KERNEL_BUILDER="$(sed -n 's/^Linux version [^ ]* (\([^)]*@[^)]*\)).*/\1/p' /proc/version 2>/dev/null)"
+[ "$KERNEL_BUILDER" == "AuxXxilium@Xpenology" ] && KERNEL="${KERNEL} (${KERNEL_BUILDER})"
 SYSTEM=$(grep -q 'hypervisor' /proc/cpuinfo && printf "virtual" || printf "physical")
 
 # Get filesystem only if storage benchmark is enabled
@@ -517,24 +700,28 @@ if [ "$STORAGE_BENCH" == "Y" ]; then
     [ -z "$FILESYSTEM" ] && printf "Unknown Filesystem\n" && exit 1
 fi
 
-# Detect GPU
-GPU_MODEL=""
-if lspci -d ::300 2>/dev/null | grep -qi "NVIDIA"; then
-    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "NVIDIA" | sed 's/.*NVIDIA Corporation //' | sed 's/ (rev.*//' | head -1)
-    [ -n "$GPU_MODEL" ] && GPU_MODEL="NVIDIA $GPU_MODEL"
-elif lspci -d ::300 2>/dev/null | grep -qi "Intel.*Graphics\|Intel Corporation.*Display"; then
-    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "Intel" | sed 's/.*Intel Corporation //' | sed 's/ (rev.*//' | head -1)
-    [ -n "$GPU_MODEL" ] && GPU_MODEL="Intel $GPU_MODEL"
-elif lspci -d ::300 2>/dev/null | grep -qi "AMD\|Advanced Micro Devices"; then
-    GPU_MODEL=$(lspci -d ::300 2>/dev/null | grep -i "AMD\|Advanced Micro Devices" | sed 's/.*Advanced Micro Devices.*\[AMD\/ATI\] //' | sed 's/ (rev.*//' | head -1)
-    [ -n "$GPU_MODEL" ] && GPU_MODEL="AMD $GPU_MODEL"
-fi
+# Detect GPU(s)
+GPU_MODELS=()
+for _gpu in "${DETECTED_GPUS[@]}"; do
+    IFS='|' read -r _slot _vendor _model <<< "$_gpu"
+    GPU_MODELS+=("$_vendor ${_model:-GPU}")
+done
 
 # Build system information in variable
 BENCHMARK_RESULTS="System Information:\n"
 append_kv_line BENCHMARK_RESULTS "CPU:" "${CPU}"
 append_kv_line BENCHMARK_RESULTS "Cores:" "${CORES_DISPLAY}"
-[ "$IGPU_BENCHMARK" == "Y" ] && [ -n "$GPU_MODEL" ] && append_kv_line BENCHMARK_RESULTS "GPU:" "${GPU_MODEL}"
+if [ "$IGPU_BENCHMARK" == "Y" ] && [ ${#GPU_MODELS[@]} -gt 0 ]; then
+    if [ ${#GPU_MODELS[@]} -eq 1 ]; then
+        append_kv_line BENCHMARK_RESULTS "GPU:" "${GPU_MODELS[0]}"
+    else
+        _gpu_index=0
+        for _gpu_model in "${GPU_MODELS[@]}"; do
+            _gpu_index=$((_gpu_index + 1))
+            append_kv_line BENCHMARK_RESULTS "GPU ${_gpu_index}:" "${_gpu_model}"
+        done
+    fi
+fi
 append_kv_line BENCHMARK_RESULTS "RAM:" "${RAM}"
 append_kv_line BENCHMARK_RESULTS "Loader:" "${ARC}"
 append_kv_line BENCHMARK_RESULTS "Model:" "${MODEL}"
