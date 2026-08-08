@@ -6,7 +6,16 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.12"
+VERSION="1.6.14"
+
+# Hash benchmark tuning.
+# The divisors map openssl throughput (kB/s) into the same score range as the
+# arithmetic loop, so blending the two keeps results comparable to older runs.
+# Single and multi need different values because the hash test scales almost
+# linearly with thread count while the (fork-heavy) shell loop does not.
+HASH_SECONDS=1
+HASH_SCALE_SINGLE=520
+HASH_SCALE_MULTI=690
 
 function run_fio_test {
     local test_name=$1
@@ -285,6 +294,60 @@ function append_kv_line() {
     printf -v "$target_name" '%s%s' "${!target_name}" "$line"
 }
 
+# Run "openssl speed" for one hash algorithm and return the throughput of the
+# largest block size in kB/s. Hashes are used instead of AES because AES-NI is
+# not available on every platform, which would make results incomparable.
+function hash_throughput {
+    local algo=$1
+    local seconds=${2:-1}
+    local line
+
+    line=$(openssl speed -seconds "$seconds" "$algo" 2>/dev/null | grep -E "^(${algo}|[[:alnum:]_-]+)[[:space:]]+[0-9.]+k" | tail -1)
+    [ -z "$line" ] && return 1
+
+    # Last column is the throughput for the biggest block size (in kB/s)
+    printf "%s" "$line" | awk '{ v=$NF; sub(/k$/, "", v); if (v+0 > 0) printf "%d", v+0 }'
+}
+
+# Combined hash score: sha256 + md5 throughput of a single worker, normalised to
+# the same magnitude as the arithmetic loop scores.
+function hash_score_single {
+    local sha md5
+    sha=$(hash_throughput sha256 "$HASH_SECONDS") || return 1
+    md5=$(hash_throughput md5 "$HASH_SECONDS") || return 1
+    [ -z "$sha" ] || [ -z "$md5" ] && return 1
+
+    # Average both algorithms, then scale kB/s into the score range.
+    echo $(( (sha + md5) / 2 / HASH_SCALE_SINGLE ))
+}
+
+# Same as above but with one openssl worker per thread, summing the throughput.
+function hash_score_multi {
+    local tmpdir core total=0 algo sha=0 md5=0
+    tmpdir=$(mktemp -d 2>/dev/null) || return 1
+
+    for algo in sha256 md5; do
+        for core in $(seq 1 "$THREADS"); do
+            ( hash_throughput "$algo" "$HASH_SECONDS" > "$tmpdir/$algo.$core" 2>/dev/null ) &
+        done
+        wait
+    done
+
+    for core in $(seq 1 "$THREADS"); do
+        local v
+        v=$(cat "$tmpdir/sha256.$core" 2>/dev/null)
+        [ -n "$v" ] && sha=$(( sha + v ))
+        v=$(cat "$tmpdir/md5.$core" 2>/dev/null)
+        [ -n "$v" ] && md5=$(( md5 + v ))
+    done
+    rm -rf "$tmpdir" 2>/dev/null
+
+    [ "$sha" -le 0 ] || [ "$md5" -le 0 ] && return 1
+    total=$(( (sha + md5) / 2 / HASH_SCALE_MULTI ))
+    [ "$total" -le 0 ] && return 1
+    echo "$total"
+}
+
 function run_cpu_benchmark {
     printf "Running CPU benchmark...\n"
 
@@ -350,11 +413,35 @@ function run_cpu_benchmark {
         # Calculate relative performance scores
         CPU_SCORE_SINGLE=$((10000000 / SINGLE_TIME))
         CPU_SCORE_MULTI=$((10000000 * THREADS / MULTI_TIME))
-        return 0
     else
         printf "Error: Benchmark timing failed\n"
         return 1
     fi
+
+    # Hash benchmark (sha256 + md5). Blended into the scores above so the final
+    # numbers stay in the same range while covering integer and crypto load.
+    if command -v openssl &>/dev/null; then
+        printf "Running hash test (sha256, md5)...\n"
+        local hash_single hash_multi
+        hash_single=$(hash_score_single)
+        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ]; then
+            printf "Running hash test multi-core (%s threads)...\n" "$THREADS"
+            hash_multi=$(hash_score_multi)
+        fi
+
+        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ] && \
+           [ -n "$hash_multi" ] && [ "$hash_multi" -gt 0 ]; then
+            CPU_SCORE_SINGLE=$(( (CPU_SCORE_SINGLE + hash_single) / 2 ))
+            CPU_SCORE_MULTI=$(( (CPU_SCORE_MULTI + hash_multi) / 2 ))
+            CPU_HASH_USED="yes"
+        else
+            printf "Hash test unavailable, using arithmetic scores only.\n"
+        fi
+    else
+        printf "openssl not found, skipping hash test.\n"
+    fi
+
+    return 0
 }
 
 printf "Arc Benchmark %s by AuxXxilium <https://github.com/AuxXxilium>\n\n" "$VERSION"
