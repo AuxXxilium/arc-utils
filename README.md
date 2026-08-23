@@ -15,7 +15,7 @@ sudo -i
 - Thanks to [@ohyeah521](https://github.com/ohyeah521) for the help
 
 Install & patch or activate the following apps on your Arc or Xpenology NAS:
-- Active Backup for Business (3.1.0-24967)
+- Active Backup for Business (3.2.1-25059)
 - Active Backup for Business G Suite (2.2.6-14205)
 - Active Backup for Business Office 365 (2.6.1-14214)
 - Advanced Media Extensions (4.0.0-4025)
