@@ -14,30 +14,27 @@ sudo -i
 
 - Thanks to [@ohyeah521](https://github.com/ohyeah521) for the help
 
-Install & patch or activate the following apps on your Arc or Xpenology NAS (if not installed):
+Install & patch or activate the following apps on your Arc or Xpenology NAS:
 - Active Backup for Business (3.1.0-24967)
 - Active Backup for Business G Suite (2.2.6-14205)
 - Active Backup for Business Office 365 (2.6.1-14214)
 - Advanced Media Extensions (4.0.0-4025)
-- MailPlus Server (3.4.1-21569)
-- Surveillance Station (9.2.3-11755, 9.2.4-11880, 9.2.5-11979)
-- Surveillance Video Extension (1.0.0-0015)
-- Virtual Machine Manager (2.7.0-12229)
-
-Activate the following apps on your Arc or Xpenology NAS (if installed):
-- Active Backup for Business (3.1.0-24967)
-- Active Backup for Business G Suite (2.2.6-14205)
-- Active Backup for Business Office 365 (2.6.1-14214)
+- MailPlus Server (3.3.0-21523, 3.4.0-21566, 3.4.1-21569)
+- Surveillance Station (9.2.4-11880, 9.2.5-11979, 9.3.0-12139)
+- Surveillance Video Extension (1.1.0-0101)
+- AI Console (1.2.0-0480, 1.2.1-0483)
 
 Patch the following apps on your Arc or Xpenology NAS (if installed):
 - MailPlus Server (3.3.0-21523)
 - MailPlus Server (3.4.0-21566)
 - MailPlus Server (3.4.1-21569)
-- Surveillance Station (9.2.0-11289) all x64
-- Surveillance Station (9.2.3-11755) all x64
 - Surveillance Station (9.2.4-11880) only Default and DVA1622 (OpenVINO)
 - Surveillance Station (9.2.5-11979) only Default and DVA3221
-- Virtual Machine Manager (2.7.0-12229)
+- Surveillance Station (9.3.0-12139) only Default
+
+Surveillance Station and MailPlus Server are patched in place from embedded
+byte-patch manifests (no downloads); the original files are backed up first and
+can be restored from the app's submenu.
 
 How-to use:
 1. Download the appinstaller script to your Arc or Xpenology NAS.
