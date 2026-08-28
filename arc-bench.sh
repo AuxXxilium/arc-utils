@@ -6,16 +6,28 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.6.15"
+VERSION="1.8.0"
 
-# Hash benchmark tuning.
-# The divisors map openssl throughput (kB/s) into the same score range as the
-# arithmetic loop, so blending the two keeps results comparable to older runs.
-# Single and multi need different values because the hash test scales almost
-# linearly with thread count while the (fork-heavy) shell loop does not.
+# CPU scoring:
+#   score = (raw / CPU_CAL)^CPU_EXP * CPU_REF^(1 - CPU_EXP)
+# sha512, not sha256: SHA-NI accelerates sha256 on newer chips but not sha512.
+# The exponent compresses the top of the range; a plain divisor fitted to NAS
+# hardware overshoots a fast desktop chip by ~37%.
 HASH_SECONDS=1
-HASH_SCALE_SINGLE=520
-HASH_SCALE_MULTI=690
+CPU_CAL=204
+CPU_EXP=0.89
+CPU_REF=390
+
+# Multi-core damping, normalised to 1.0 at one thread:
+#   efficiency(t) = 1 / (1 + (t / MT_DIV)^MT_EXP)
+# Gentler than measured efficiency because CPU_EXP already compresses the top;
+# fitting the damper on its own double-counts and puts wide CPUs ~33% low.
+MT_DIV=105
+MT_EXP=1.35
+
+# Fallback only, for boxes without openssl.
+LOOP_CAL_SINGLE=26000
+LOOP_CAL_MULTI=26000
 
 function run_fio_test {
     local test_name=$1
@@ -458,8 +470,8 @@ function append_kv_line() {
 }
 
 # Run "openssl speed" for one hash algorithm and return the throughput of the
-# largest block size in kB/s. Hashes are used instead of AES because AES-NI is
-# not available on every platform, which would make results incomparable.
+# largest block size in kB/s. Only algorithms without a hardware path are used,
+# otherwise results are not comparable across CPUs.
 function hash_throughput {
     local algo=$1
     local seconds=${2:-1}
@@ -472,24 +484,44 @@ function hash_throughput {
     printf "%s" "$line" | awk '{ v=$NF; sub(/k$/, "", v); if (v+0 > 0) printf "%d", v+0 }'
 }
 
-# Combined hash score: sha256 + md5 throughput of a single worker, normalised to
-# the same magnitude as the arithmetic loop scores.
+# Score raw throughput (kB/s). $2 is the thread count it was gathered over,
+# 1 meaning no damping. awk does the maths because bash has no float or pow.
+function cpu_score_from_raw {
+    local raw=$1 threads=${2:-1}
+    [ -z "$raw" ] || [ "$raw" -le 0 ] && return 1
+
+    awk -v raw="$raw" -v t="$threads" \
+        -v cal="$CPU_CAL" -v g="$CPU_EXP" -v ref="$CPU_REF" \
+        -v d="$MT_DIV" -v e="$MT_EXP" '
+        BEGIN {
+            if (t > 1) {
+                # Normalised so a single thread is undamped.
+                norm = 1 / (1 + (1 / d) ^ e)
+                raw = raw * ((1 / (1 + (t / d) ^ e)) / norm)
+            }
+            s = exp(g * log(raw / cal)) * exp((1 - g) * log(ref))
+            if (s < 1) s = 1
+            printf "%d", s + 0.5
+        }'
+}
+
+# Averaged sha512+md5 throughput (kB/s) of a single worker, scored.
 function hash_score_single {
     local sha md5
-    sha=$(hash_throughput sha256 "$HASH_SECONDS") || return 1
+    sha=$(hash_throughput sha512 "$HASH_SECONDS") || return 1
     md5=$(hash_throughput md5 "$HASH_SECONDS") || return 1
     [ -z "$sha" ] || [ -z "$md5" ] && return 1
 
-    # Average both algorithms, then scale kB/s into the score range.
-    echo $(( (sha + md5) / 2 / HASH_SCALE_SINGLE ))
+    cpu_score_from_raw $(( (sha + md5) / 2 )) 1
 }
 
-# Same as above but with one openssl worker per thread, summing the throughput.
+# Same as above but with one openssl worker per thread, summing the throughput
+# so the result scales with core count before damping.
 function hash_score_multi {
-    local tmpdir core total=0 algo sha=0 md5=0
+    local tmpdir core algo sha=0 md5=0
     tmpdir=$(mktemp -d 2>/dev/null) || return 1
 
-    for algo in sha256 md5; do
+    for algo in sha512 md5; do
         for core in $(seq 1 "$THREADS"); do
             ( hash_throughput "$algo" "$HASH_SECONDS" > "$tmpdir/$algo.$core" 2>/dev/null ) &
         done
@@ -498,7 +530,7 @@ function hash_score_multi {
 
     for core in $(seq 1 "$THREADS"); do
         local v
-        v=$(cat "$tmpdir/sha256.$core" 2>/dev/null)
+        v=$(cat "$tmpdir/sha512.$core" 2>/dev/null)
         [ -n "$v" ] && sha=$(( sha + v ))
         v=$(cat "$tmpdir/md5.$core" 2>/dev/null)
         [ -n "$v" ] && md5=$(( md5 + v ))
@@ -506,9 +538,7 @@ function hash_score_multi {
     rm -rf "$tmpdir" 2>/dev/null
 
     [ "$sha" -le 0 ] || [ "$md5" -le 0 ] && return 1
-    total=$(( (sha + md5) / 2 / HASH_SCALE_MULTI ))
-    [ "$total" -le 0 ] && return 1
-    echo "$total"
+    cpu_score_from_raw $(( (sha + md5) / 2 )) "$THREADS"
 }
 
 function run_cpu_benchmark {
@@ -521,9 +551,36 @@ function run_cpu_benchmark {
     command -v openssl &>/dev/null && have_openssl="yes"
     local hash_single hash_multi
 
-    # Single-core step: arithmetic loop plus the single-threaded hash test.
-    # The arithmetic part runs two passes and keeps the faster one, which
-    # avoids external CPU pinning tools like taskset.
+    SINGLE_TIME=0
+    MULTI_TIME=0
+
+    # Preferred path: openssl hash throughput, single thread then all threads.
+    if [ "$have_openssl" = "yes" ]; then
+        printf "Running single-core test...\n"
+        hash_single=$(hash_score_single)
+        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ]; then
+            printf "Running multi-core test (%s threads)...\n" "$THREADS"
+            hash_multi=$(hash_score_multi)
+        fi
+        if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ] && \
+           [ -n "$hash_multi" ] && [ "$hash_multi" -gt 0 ]; then
+            CPU_SCORE_SINGLE=$hash_single
+            CPU_SCORE_MULTI=$hash_multi
+            CPU_HASH_USED="yes"
+
+            # Guard against scheduler noise inverting the two.
+            [ "$CPU_SCORE_MULTI" -lt "$CPU_SCORE_SINGLE" ] && CPU_SCORE_MULTI=$CPU_SCORE_SINGLE
+            return 0
+        fi
+    fi
+
+    # Fallback: shell arithmetic loop, only reached without a usable openssl
+    # figure. Two passes, faster kept, which avoids needing taskset.
+    if [ "$have_openssl" != "yes" ]; then
+        printf "openssl not found, falling back to arithmetic test (results are approximate).\n"
+    else
+        printf "Hash test unavailable, falling back to arithmetic test (results are approximate).\n"
+    fi
     printf "Running single-core test...\n"
 
     SINGLE_START_A=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
@@ -550,9 +607,7 @@ function run_cpu_benchmark {
         SINGLE_TIME=$SINGLE_TIME_B
     fi
 
-    [ "$have_openssl" = "yes" ] && hash_single=$(hash_score_single)
-
-    # Multi-core step: parallel arithmetic loops plus the threaded hash test.
+    # Multi-core step: parallel arithmetic loops.
     printf "Running multi-core test (%s threads)...\n" "$THREADS"
     MULTI_START=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
 
@@ -577,32 +632,16 @@ function run_cpu_benchmark {
     MULTI_END=$(date +%s%N 2>/dev/null || echo $(($(date +%s) * 1000000000)))
     MULTI_TIME=$(( (MULTI_END - MULTI_START) / 1000000 ))  # Convert to milliseconds
 
-    if [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ]; then
-        hash_multi=$(hash_score_multi)
-    fi
-
-    # Calculate scores (lower time = higher score)
-    # Base score of 1000, adjusted by time taken
-    if [ $SINGLE_TIME -gt 0 ] && [ $MULTI_TIME -gt 0 ]; then
-        # Calculate relative performance scores
-        CPU_SCORE_SINGLE=$((10000000 / SINGLE_TIME))
-        CPU_SCORE_MULTI=$((10000000 * THREADS / MULTI_TIME))
+    # Fallback scoring only; largely reflects bash speed, so it is approximate
+    # and not comparable to a calibrated run.
+    if [ "$SINGLE_TIME" -gt 0 ] && [ "$MULTI_TIME" -gt 0 ]; then
+        CPU_SCORE_SINGLE=$(( LOOP_CAL_SINGLE / SINGLE_TIME ))
+        CPU_SCORE_MULTI=$(( LOOP_CAL_MULTI * THREADS / MULTI_TIME ))
+        [ "$CPU_SCORE_SINGLE" -le 0 ] && CPU_SCORE_SINGLE=1
+        [ "$CPU_SCORE_MULTI" -lt "$CPU_SCORE_SINGLE" ] && CPU_SCORE_MULTI=$CPU_SCORE_SINGLE
     else
         printf "Error: Benchmark timing failed\n"
         return 1
-    fi
-
-    # Blend the hash results into the scores above so the final numbers stay in
-    # the same range while covering both integer and crypto load.
-    if [ "$have_openssl" != "yes" ]; then
-        printf "openssl not found, skipping hash test.\n"
-    elif [ -n "$hash_single" ] && [ "$hash_single" -gt 0 ] && \
-         [ -n "$hash_multi" ] && [ "$hash_multi" -gt 0 ]; then
-        CPU_SCORE_SINGLE=$(( (CPU_SCORE_SINGLE + hash_single) / 2 ))
-        CPU_SCORE_MULTI=$(( (CPU_SCORE_MULTI + hash_multi) / 2 ))
-        CPU_HASH_USED="yes"
-    else
-        printf "Hash test unavailable, using arithmetic scores only.\n"
     fi
 
     return 0
@@ -689,6 +728,20 @@ ARC="$(grep "LVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr 
 [ -z "$ARC" ] && ARC="Unknown"
 MODEL="$(cat /etc.defaults/synoinfo.conf 2>/dev/null | grep "unique" | awk -F= '{print $2}' | tr -d '"' | xargs)"
 [ -z "$MODEL" ] && MODEL="Unknown"
+# DSM version, e.g. "7.2.2-72806 Update 4". productversion/buildnumber are
+# always present; smallfixnumber only exists once an update is installed.
+DSM=""
+if [ -r /etc.defaults/VERSION ]; then
+    _dsm_major="$(grep '^productversion=' /etc.defaults/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
+    _dsm_build="$(grep '^buildnumber=' /etc.defaults/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
+    _dsm_fix="$(grep '^smallfixnumber=' /etc.defaults/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)"
+    if [ -n "$_dsm_major" ]; then
+        DSM="$_dsm_major"
+        [ -n "$_dsm_build" ] && DSM="${DSM}-${_dsm_build}"
+        [ -n "$_dsm_fix" ] && [ "$_dsm_fix" != "0" ] && DSM="${DSM} Update ${_dsm_fix}"
+    fi
+fi
+[ -z "$DSM" ] && DSM="Unknown"
 KERNEL="$(uname -r)"
 KERNEL_BUILDER="$(sed -n 's/^Linux version [^ ]* (\([^)]*@[^)]*\)).*/\1/p' /proc/version 2>/dev/null)"
 [ "$KERNEL_BUILDER" == "AuxXxilium@Xpenology" ] && KERNEL="${KERNEL} (${KERNEL_BUILDER})"
@@ -725,6 +778,7 @@ fi
 append_kv_line BENCHMARK_RESULTS "RAM:" "${RAM}"
 append_kv_line BENCHMARK_RESULTS "Loader:" "${ARC}"
 append_kv_line BENCHMARK_RESULTS "Model:" "${MODEL}"
+append_kv_line BENCHMARK_RESULTS "DSM:" "${DSM}"
 append_kv_line BENCHMARK_RESULTS "Kernel:" "${KERNEL}"
 append_kv_line BENCHMARK_RESULTS "System:" "${SYSTEM}"
 if [ "$STORAGE_BENCH" == "Y" ]; then

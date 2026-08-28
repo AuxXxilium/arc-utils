@@ -74,6 +74,12 @@ curl -fsSL https://bench.xpenology.tech -o /root/bench.sh && chmod +x /root/benc
 /root/bench.sh
 ```
 
+Results you choose to submit are posted to the Discord benchmark channel and
+the CPU/GPU scores are collected at
+[arc.xpenology.tech/scores](https://arc.xpenology.tech/scores),
+a public list (no login) with search. Selecting an entry shows the DSM model
+and version reported with each run. No username or hostname is stored.
+
 ---
 
 ## VCRT (Video Compute Runtime)
