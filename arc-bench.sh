@@ -6,7 +6,7 @@
 # See /LICENSE for more information.
 #
 
-VERSION="1.8.0"
+VERSION="1.8.1"
 
 # CPU scoring:
 #   score = (raw / CPU_CAL)^CPU_EXP * CPU_REF^(1 - CPU_EXP)
@@ -718,7 +718,7 @@ DEVICE="${DEVICE#/}"
 DISK_PATH="/$DEVICE"
 
 # Gather System Information
-CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed 's/ CPU//g' | xargs)
+CPU=$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}' | sed -e 's/ CPU//g' -e 's/ @.*$//' | xargs)
 THREADS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
 PHYSICAL_CORES=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/{core_cpus_list,thread_siblings_list} 2>/dev/null | sort -u | wc -l)
 [ "$PHYSICAL_CORES" -eq 0 ] && PHYSICAL_CORES=$(grep -c 'core id' /proc/cpuinfo 2>/dev/null || echo "$THREADS")
