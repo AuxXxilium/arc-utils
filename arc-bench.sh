@@ -866,6 +866,9 @@ readonly BENCHMARK_RESULTS
 if [ -n "${1}" ] || [ -n "${2}" ] || [ -n "${3}" ] || [ ! -f "/usr/bin/jq" ]; then
     printf "No upload to Discord possible.\n"
 else
+    printf "\nNote: Submitted results are posted to the Discord Benchmark channel and\n"
+    printf "the CPU/GPU scores are also added to the public score database at\n"
+    printf "https://arc.xpenology.tech/scores (no username or hostname is stored).\n\n"
     read -p "Do you want to send the results to Discord Benchmark channel? (y/n): " send_discord
     if [[ "$send_discord" == "y" ]]; then
         webhook_url="https://arc.auxxxilium.tech/bench"
@@ -879,7 +882,7 @@ else
         json_content=$(jq -nc --arg c "$message" '{content: $c}')
         response=$(curl -s -H "Content-Type: application/json" -X POST -d "$json_content" "$webhook_url")
         if echo "$response" | grep -q '"status":"sent"'; then
-            printf "Results sent to Discord.\n"
+            printf "Results sent to Discord and added to https://arc.xpenology.tech/scores.\n"
         else
             printf "Failed to send results to Discord. Response: %s\n" "$response"
         fi
