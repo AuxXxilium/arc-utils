@@ -25,23 +25,50 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.0"
+VERSION="1.9.1"
 
-# cpu_display_name() - trims the CPU model name for display and submission.
+# cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
-# Arc Control installs cpuname.lib.sh beside this script so its panels, its
-# report and this benchmark all spell a CPU name the same way; three spellings
-# of these patterns in one package is how they drift apart. Standalone - run
-# from a terminal, or copied out of a checkout - there is no lib, so the
-# fallback below is the trimming this line did before the lib existed.
-_bench_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
-if [ -r "${_bench_lib_dir}/cpuname.lib.sh" ]; then
-    . "${_bench_lib_dir}/cpuname.lib.sh"
-else
-    cpu_display_name() {
-        printf '%s' "$1" | sed -e 's/ CPU//g' -e 's/ @.*$//' | xargs
-    }
-fi
+# /proc/cpuinfo gives the marketing string, not a useful one: "12th Gen
+# Intel(R) Core(TM) i5-1235U" and "AMD Ryzen(tm) 7 5825U with Radeon(tm)
+# Graphics" spend most of their length on trademark marks, a generation the
+# part number already encodes, and a clock speed that is not part of the model.
+#
+# This mirrors bench_display_name() in arc-web's scores.php, which is where the
+# canonical version lives: the score database cleans names the same way, so one
+# chip spelled differently by two kernels does not become two entries, and the
+# name shown here matches the name shown there. Keep the two in step - if a
+# case is added to that function, add it here.
+#
+# Inlined rather than sourced from a lib. Arc Control ships cpuname.lib.sh for
+# its own panels, but this script is also downloaded on its own to /root and
+# run from a terminal, where no lib sits beside it; a fallback for that case is
+# how "Intel(R) Xeon(R) D-1581" reached the score database with its marks still
+# attached.
+#
+# The (R) and glyph rules are spelled as alternations, not the shorter [RTM] /
+# [®™©] classes: busybox sed matches bytes, not characters, so a class over
+# multibyte glyphs strips their shared 0xc2 lead byte and corrupts unrelated
+# text that happens to use it - "45°C" comes out as an invalid sequence.
+cpu_display_name() {
+    _cdn_out="$(printf '%s' "$1" | sed -E \
+        -e 's/[0-9]+(st|nd|rd|th)[[:space:]]+Gen(eration)?[[:space:]]*//Ig' \
+        -e 's/\((R|TM|C)\)//Ig' \
+        -e 's/®|™|©//g' \
+        -e 's/[[:space:]]*@[[:space:]]*[0-9.]+[[:space:]]*[GM]Hz//Ig' \
+        -e 's/[[:space:]]+([0-9]+|two|three|four|six|eight|ten|twelve|sixteen)[- ]core//Ig' \
+        -e 's/[[:space:]]+(with|w\/)[[:space:]]+.*$//I' \
+        -e 's/[[:space:]]+(CPU|Processor|APU)([[:space:]]|$)/\2/Ig' \
+        -e 's/[[:space:]]+/ /g' \
+        -e 's/^[[:space:]]+|[[:space:]]+$//g')"
+    # A name that cleaned away to nothing means the patterns ate something they
+    # should not have; showing the raw string beats showing an empty field.
+    if [ -z "${_cdn_out}" ]; then
+        printf '%s' "$1"
+    else
+        printf '%s' "${_cdn_out}"
+    fi
+}
 
 # CPU scoring. These constants are the calibration: changing any of them makes
 # new scores incomparable with every score already in the database.
@@ -208,12 +235,23 @@ normalize_gpu_vendor() {
 }
 
 # Strip the vendor prefix and the trailing "(rev xx)" from an lspci device name.
+#
+# The trademark marks go too, the way cpu_display_name() removes them from a
+# CPU name: integrated graphics inherit the CPU's marketing string, so lspci
+# reports names like "Xeon(R) E3-1200 v6/7th Gen Core Processor Integrated
+# Graphics" and the marks would otherwise reach the score database. Spelled as
+# an alternation rather than [RTM] or [®™©] for the same reason as there -
+# busybox sed matches bytes, and a class over multibyte glyphs corrupts any
+# other text sharing their 0xc2 lead byte.
 clean_gpu_model() {
-    printf "%s" "$1" | sed -e 's/.*\[AMD\/ATI\] //' \
-                           -e 's/.*Advanced Micro Devices[^]]*, Inc\.[[:space:]]*//' \
-                           -e 's/.*NVIDIA Corporation[[:space:]]*//' \
-                           -e 's/.*Intel Corporation[[:space:]]*//' \
-                           -e 's/ (rev[^)]*)//' | xargs
+    printf "%s" "$1" | sed -E -e 's/.*\[AMD\/ATI\] //' \
+                              -e 's/.*Advanced Micro Devices[^]]*, Inc\.[[:space:]]*//' \
+                              -e 's/.*NVIDIA Corporation[[:space:]]*//' \
+                              -e 's/.*Intel Corporation[[:space:]]*//' \
+                              -e 's/\((R|TM|C)\)//Ig' \
+                              -e 's/®|™|©//g' \
+                              -e 's/ \(rev[^)]*\)//' \
+                              -e 's/[[:space:]]+/ /g' | xargs
 }
 
 # List every GPU as "<pci_slot>|<vendor>|<model>", one per line, deduplicated.
