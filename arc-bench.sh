@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.1"
+VERSION="1.9.2"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -701,13 +701,44 @@ run_gpu_benchmark() {
         if [ "$vendor" = "NVIDIA" ]; then
             if ! command -v nvidia-smi >/dev/null 2>&1; then
                 note="nvidia-smi not available"
-            elif [ "$has_nvenc" != "yes" ]; then
-                note="NVENC not available in VCRT"
             else
-                printf "Running GPU Benchmark with h264_nvenc...\n"
-                speed=$(ffmpeg_speed "$FFMPEG_BIN" -hwaccel cuda -hwaccel_output_format cuda \
-                    -c:v h264_cuvid -i "$bench_file" -c:v h264_nvenc -preset p4 -f null -)
-                [ -n "$speed" ] && used_encoder="h264_nvenc"
+                if [ "$has_nvenc" = "yes" ]; then
+                    printf "Running GPU Benchmark with h264_nvenc...\n"
+                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -hwaccel cuda -hwaccel_output_format cuda \
+                        -c:v h264_cuvid -i "$bench_file" -c:v h264_nvenc -preset p4 -f null -)
+                    [ -n "$speed" ] && used_encoder="h264_nvenc"
+                fi
+
+                # NVDEC + CPU encode, when the card can decode but not encode.
+                #
+                # This is the 470 branch's situation and it is a version floor
+                # rather than a missing capability: ffmpeg requires NVENC API
+                # 12.2 and 470 provides 11.1, so h264_nvenc refuses to open
+                # ("The minimum required Nvidia driver for nvenc is 550.54.14
+                # or newer") while NVDEC works perfectly. Kepler cards have no
+                # newer driver available, so reporting N/A hid a GPU that was
+                # in fact doing the heavier half of the work.
+                #
+                # Decode on the GPU, encode with libx264, and say so in the
+                # result - the number is not comparable to a full-hardware one
+                # and the label has to make that obvious.
+                if [ -z "$speed" ]; then
+                    printf "Running GPU Benchmark with NVDEC + libx264...\n"
+                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -hwaccel cuda \
+                        -c:v h264_cuvid -i "$bench_file" \
+                        -c:v libx264 -preset veryfast -f null -)
+                    if [ -n "$speed" ]; then
+                        if [ "$has_nvenc" = "yes" ]; then
+                            used_encoder="nvdec decode + libx264, fallback from h264_nvenc"
+                        else
+                            used_encoder="nvdec decode + libx264"
+                        fi
+                    fi
+                fi
+
+                if [ -z "$speed" ] && [ "$has_nvenc" != "yes" ]; then
+                    note="NVENC not available in VCRT, and NVDEC did not run"
+                fi
             fi
         else
             # Intel and AMD: QSV first (Intel only), then VAAPI on the render
