@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.2"
+VERSION="1.9.3"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -465,7 +465,31 @@ render_node_for_slot() {
     return 1
 }
 
-# Any render node not claimed by a specific slot, used as a last resort.
+# Resolve a render node by PCI vendor rather than by slot.
+#
+# The slot match above is exact, which also makes it brittle: a card whose
+# render node exists but whose sysfs symlink does not resolve to the slot lspci
+# reported - a bridge in the path, a hypervisor rewriting the topology - came
+# back with no node at all, and the card was reported as having none. Matching
+# on the vendor id recovers that without ever handing VAAPI a node belonging to
+# a different vendor's card, which is exactly what any_render_node() risks the
+# moment a second GPU is present.
+render_node_for_vendor() {
+    local want="$1" node vendor
+    [ -n "$want" ] || return 1
+
+    for node in /dev/dri/renderD*; do
+        [ -e "$node" ] || continue
+        vendor=$(cat "/sys/class/drm/${node##*/}/device/vendor" 2>/dev/null)
+        [ -n "$vendor" ] || continue
+        [ "$(normalize_gpu_vendor "$vendor")" = "$want" ] || continue
+        printf "%s" "$node"
+        return 0
+    done
+    return 1
+}
+
+# Any render node at all, used as a last resort and only with one GPU present.
 any_render_node() {
     local node
     for node in /dev/dri/renderD*; do
@@ -742,7 +766,17 @@ run_gpu_benchmark() {
             fi
         else
             # Intel and AMD: QSV first (Intel only), then VAAPI on the render
-            # node belonging to this specific card.
+            # node belonging to this specific card - this card's own node, then
+            # one from the same vendor for a card whose slot symlink does not
+            # match, and only with a single GPU present, any node at all.
+            #
+            # That last step's single-GPU guard is what left a working iGPU
+            # unusable the moment a discrete card was added beside it: two GPUs
+            # switched the fallback off and the iGPU was reported as having no
+            # render device. The vendor pass is what a second GPU no longer
+            # costs the first one, and it cannot pick the wrong card the way
+            # any_render_node() would.
+            [ -z "$node" ] && node=$(render_node_for_vendor "$vendor")
             [ -z "$node" ] && [ ${#gpus[@]} -eq 1 ] && node=$(any_render_node)
 
             if [ "$vendor" = "Intel" ] && [ "$has_qsv" = "yes" ]; then
@@ -777,7 +811,15 @@ run_gpu_benchmark() {
                 if [ "$has_qsv" != "yes" ] && [ "$has_vaapi" != "yes" ]; then
                     note="no hardware encoder available in VCRT"
                 elif [ -z "$node" ]; then
-                    note="no VAAPI render device found for this GPU"
+                    # Two very different situations read identically as "no
+                    # render device", and they need opposite things from the
+                    # reader: a driver that never bound is a kernel/module
+                    # problem, a node that exists but maps elsewhere is ours.
+                    if any_render_node >/dev/null; then
+                        note="render nodes exist, none belongs to this GPU"
+                    else
+                        note="no DRM render node, the GPU driver is not loaded"
+                    fi
                 fi
             fi
         fi
