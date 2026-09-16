@@ -447,6 +447,32 @@ prompt_submit() {
     SUBMIT="yes"
 }
 
+# The kernel driver bound to a PCI slot, if any.
+#
+# A GPU with no render node is two unrelated problems wearing one face, and
+# this symlink tells them apart. Absent means nothing claimed the card at all:
+# the module is not in this kernel, which is where the 4.4 branch leaves an
+# Intel iGPU - there is no i915 to bind and no amount of work in this script
+# produces a render node. Present means a driver came up and still exposed no
+# node, which is a driver or firmware problem on a kernel that does carry the
+# module, and that is worth saying out loud rather than filing under "no VAAPI".
+pci_driver_for_slot() {
+    local slot="$1" link
+
+    case "$slot" in
+        *:*:*) ;;
+        *) slot="0000:${slot}" ;;
+    esac
+
+    # Plain readlink, not readlink -f: -f canonicalises a path whose last
+    # component does not exist and succeeds, so an unbound card came back
+    # named after the missing "driver" entry itself. Without -f the call fails
+    # unless the path really is a symlink, which is what is being asked.
+    link=$(readlink "/sys/bus/pci/devices/${slot}/driver" 2>/dev/null)
+    [ -n "$link" ] || return 1
+    printf "%s" "${link##*/}"
+}
+
 # Pick the DRM render node (/dev/dri/renderD*) to benchmark one GPU with.
 #
 # Vendor first, slot second. A node carries the PCI vendor of the card that
@@ -709,7 +735,7 @@ run_gpu_benchmark() {
     # Number identically named cards (#1, #2, ...) so their rows stay distinct
     # without exposing PCI slots.
     local -A name_count=() name_seen=()
-    local entry slot vendor model label node speed encoder used_encoder note index=0
+    local entry slot vendor model label node driver speed encoder used_encoder note index=0
     for entry in "${gpus[@]}"; do
         IFS='|' read -r slot vendor model <<< "$entry"
         label="$vendor ${model:-GPU}"
@@ -816,14 +842,18 @@ run_gpu_benchmark() {
                 if [ "$has_qsv" != "yes" ] && [ "$has_vaapi" != "yes" ]; then
                     note="no hardware encoder available in VCRT"
                 elif [ -z "$node" ]; then
-                    # Two very different situations read identically as "no
-                    # render device", and they need opposite things from the
-                    # reader: a driver that never bound is a kernel/module
-                    # problem, a node that exists but maps elsewhere is ours.
-                    if any_render_node >/dev/null; then
-                        note="no ${vendor} render node matches this GPU"
+                    # "No render device" covered three situations that need
+                    # different things from whoever reads the result, so say
+                    # which one it is: nothing bound to the card, a driver that
+                    # bound and exposed no node, or nodes that exist but belong
+                    # to other cards.
+                    driver=$(pci_driver_for_slot "$slot")
+                    if [ -z "$driver" ]; then
+                        note="no driver bound to this GPU, the kernel has no module for it"
+                    elif any_render_node >/dev/null; then
+                        note="no ${vendor} render node matches this GPU (driver ${driver})"
                     else
-                        note="no DRM render node, the GPU driver is not loaded"
+                        note="${driver} is bound but exposes no render node"
                     fi
                 fi
             fi
