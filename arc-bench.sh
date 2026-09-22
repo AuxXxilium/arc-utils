@@ -950,7 +950,13 @@ run_cpu_benchmark() {
 
 # ------------------------------------------------------------ system summary
 
-THREADS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
+# Same `grep -c` trap the PHYSICAL_CORES fallback below documents, in its other
+# form: without nproc the fallback prints "0" for a /proc/cpuinfo that spells
+# the field differently, and a zero here is not caught by ||. THREADS divides
+# in the fallback multi-core score and bounds the worker loops, so a zero turns
+# the run into "division by 0" or a silent no-worker pass reported as a result.
+THREADS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null)
+[ "${THREADS:-0}" -gt 0 ] 2>/dev/null || THREADS=1
 CPU=$(cpu_display_name "$(grep -m1 "model name" /proc/cpuinfo | awk -F: '{print $2}')")
 PHYSICAL_CORES=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/{core_cpus_list,thread_siblings_list} 2>/dev/null | sort -u | wc -l)
 if [ "${PHYSICAL_CORES:-0}" -eq 0 ]; then
