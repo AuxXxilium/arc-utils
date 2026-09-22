@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.2"
+VERSION="1.9.3"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -639,10 +639,31 @@ ensure_bench_file() {
 }
 
 # Run one ffmpeg transcode and echo the reported speed (empty on failure).
+#
+# A failed encode is not always a silent one. When an encoder opens and then
+# refuses the parameters - h264_qsv on Jasper Lake declining -global_quality's
+# ICQ mode with "invalid video parameters (-15)" - ffmpeg has already printed
+# progress lines and its last one reads "speed=N/A". Taking that token at face
+# value made the caller believe the encoder had worked, so the VAAPI fallback
+# below was never tried and the card was reported as "N/A (h264_qsv)".
+#
+# Only a token that starts with a digit is a speed, which rejects "N/A" and
+# any other placeholder ffmpeg may print, and the exit status has to be 0 as
+# well: an encoder that dies mid-run leaves a real-looking speed from the last
+# progress line before the error. The output is captured before it is parsed
+# rather than piped straight into awk, because in a pipeline $? belongs to awk
+# and ffmpeg's own status is lost.
 ffmpeg_speed() {
-    local bin="$1"
+    local bin="$1" output status speed
     shift
-    "$bin" "$@" 2>&1 | grep "speed=" | tail -n 1 | awk -F 'speed=' '{print $2}' | awk '{print $1}'
+    output=$("$bin" "$@" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && return 0
+    speed=$(printf '%s' "$output" | grep "speed=" | tail -n 1 |
+        awk -F 'speed=' '{print $2}' | awk '{print $1}')
+    case "$speed" in
+        [0-9]*) printf '%s' "$speed" ;;
+    esac
 }
 
 run_gpu_benchmark() {
