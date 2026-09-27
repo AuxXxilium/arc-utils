@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.3"
+VERSION="1.9.4"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -969,8 +969,31 @@ fi
 CORES_DISPLAY=$([ "$PHYSICAL_CORES" -eq "$THREADS" ] && echo "$PHYSICAL_CORES" || echo "$PHYSICAL_CORES ($THREADS threads)")
 RAM=$(free -b 2>/dev/null | awk '/Mem:/ {printf "%.1fGB", $2/1024/1024/1024}')
 [ -z "$RAM" ] && RAM=$(awk '/MemTotal/ {printf "%.1fGB", $2/1024/1024}' /proc/meminfo 2>/dev/null)
-ARC=$(grep "LVERSION" /usr/arc/VERSION 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
-[ -z "$ARC" ] && ARC="Unknown"
+# Loader name and version, e.g. "Arc 26.09.26" or "Arx 26.09.26".
+#
+# A bare LVERSION could not tell the two apart, here or in the score database,
+# which stores this row's value as it is, so the name goes in front of it.
+#
+# Arx writes its VERSION to /usr/arx, Arc to /usr/arc, so the file found says
+# which loader it is. Earlier Arx builds wrote /usr/arc/VERSION like Arc and
+# only set LLABEL="ARX", so a /usr/arc file is still checked for that label.
+# Anything else counts as Arc, including a VERSION file with no LLABEL at all.
+if [ -r /usr/arx/VERSION ]; then
+    _lfile=/usr/arx/VERSION
+else
+    _lfile=/usr/arc/VERSION
+fi
+_lversion=$(grep '^LVERSION=' "$_lfile" 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
+_llabel=$(grep '^LLABEL=' "$_lfile" 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
+case "$_lfile:$_llabel" in
+    /usr/arx/*|*:[aA][rR][xX]) _lname="Arx" ;;
+    *)                         _lname="Arc" ;;
+esac
+if [ -n "$_lversion" ]; then
+    ARC="${_lname} ${_lversion}"
+else
+    ARC="Unknown"
+fi
 MODEL=$(grep "unique" /etc.defaults/synoinfo.conf 2>/dev/null | awk -F= '{print $2}' | tr -d '"' | xargs)
 [ -z "$MODEL" ] && MODEL="Unknown"
 
