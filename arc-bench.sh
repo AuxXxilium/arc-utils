@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.4"
+VERSION="1.9.5"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -638,7 +638,9 @@ ensure_bench_file() {
     return 0
 }
 
-# Run one ffmpeg transcode and echo the reported speed (empty on failure).
+# Run one ffmpeg transcode. Sets FFMPEG_SPEED to the reported speed, or leaves
+# it empty and sets FFMPEG_ERR to the reason ffmpeg gave. It runs in the
+# caller's shell rather than in $(...), which is what lets it hand back both.
 #
 # A failed encode is not always a silent one. When an encoder opens and then
 # refuses the parameters - h264_qsv on Jasper Lake declining -global_quality's
@@ -653,17 +655,72 @@ ensure_bench_file() {
 # progress line before the error. The output is captured before it is parsed
 # rather than piped straight into awk, because in a pipeline $? belongs to awk
 # and ffmpeg's own status is lost.
-ffmpeg_speed() {
+#
+# The reason is kept because a bare "benchmark failed" says nothing: it cannot
+# tell a VCRT that ships a broken iHD driver from a kernel whose GPU is wedged,
+# and a public report is all there usually is to go on.
+ffmpeg_run() {
     local bin="$1" output status speed
     shift
-    output=$("$bin" "$@" 2>&1)
+    FFMPEG_SPEED=""
+    FFMPEG_ERR=""
+    output=$("$bin" -hide_banner "$@" 2>&1)
     status=$?
-    [ "$status" -ne 0 ] && return 0
-    speed=$(printf '%s' "$output" | grep "speed=" | tail -n 1 |
-        awk -F 'speed=' '{print $2}' | awk '{print $1}')
-    case "$speed" in
-        [0-9]*) printf '%s' "$speed" ;;
+    if [ "$status" -eq 0 ]; then
+        speed=$(printf '%s' "$output" | grep "speed=" | tail -n 1 |
+            awk -F 'speed=' '{print $2}' | awk '{print $1}')
+        case "$speed" in
+            [0-9]*) FFMPEG_SPEED="$speed"; return 0 ;;
+        esac
+    fi
+    FFMPEG_ERR=$(ffmpeg_error_line "$output" "$status")
+    return 1
+}
+
+# Pick the one line of ffmpeg output that explains a failure.
+#
+# ffmpeg prints the cause first and then wraps it: a VAAPI device that will
+# not open reads "libva: .../iHD_drv_video.so init failed", then "Failed to
+# initialise VAAPI connection", "Device creation failed", "Failed to set
+# value ... for option 'init_hw_device'" and "Error parsing global options".
+# The first error-looking line is the cause, so that is the one taken. The
+# generic trailers and progress lines are dropped first, as are decoder
+# warnings that do not stop a run on their own.
+#
+# The result ends up in a tab-separated row and in a Discord message, so tabs
+# and control characters are stripped and the length is capped.
+ffmpeg_error_line() {
+    local output="$1" status="$2" lines line
+    lines=$(printf '%s\n' "$output" | tr '\r\t' '\n ' |
+        grep -v -E '^[[:space:]]*$|^(frame|size)=|speed=|^Conversion failed|^Exiting normally|^Press \[q\]|error while decoding|concealing')
+    line=$(printf '%s\n' "$lines" |
+        grep -i -m1 -E 'error|fail|invalid|unsupported|not supported|not found|cannot|can.t|could not|unable|denied|no such|not permitted|minimum required')
+    [ -z "$line" ] && line=$(printf '%s\n' "$lines" | tail -n 1)
+    # "[h264_qsv @ 0x55d0c0a1b2c0] Error ..." -> "h264_qsv: Error ..."
+    line=$(printf '%s' "$line" | sed -e 's/^\[\([^]]*\) @ 0x[0-9a-fA-F]*\] */\1: /' |
+        tr -cd '[:print:]' | sed -e 's/^ *//' -e 's/ *$//')
+    if [ -z "$line" ]; then
+        if [ "$status" -gt 128 ]; then
+            line="ffmpeg killed by signal $((status - 128))"
+        elif [ "$status" -ne 0 ]; then
+            line="ffmpeg exited with status $status"
+        else
+            line="ffmpeg reported no speed"
+        fi
+    fi
+    [ ${#line} -gt 120 ] && line="${line:0:117}..."
+    printf '%s' "$line"
+}
+
+# Record a failed attempt as "<encoder>: <reason>" in the caller's errors.
+add_ffmpeg_error() {
+    local reason="$FFMPEG_ERR"
+    # The encoder often names itself already: "h264_qsv: Error initializing".
+    case "$reason" in
+        "$1: "*) ;;
+        *) reason="$1: $reason" ;;
     esac
+    errors="${errors:+$errors; }$reason"
 }
 
 run_gpu_benchmark() {
@@ -698,7 +755,7 @@ run_gpu_benchmark() {
     # Number identically named cards (#1, #2, ...) so their rows stay distinct
     # without exposing PCI slots.
     local -A name_count=() name_seen=()
-    local entry slot vendor model label node speed encoder used_encoder note index=0
+    local entry slot vendor model label node speed encoder used_encoder note errors index=0
     for entry in "${gpus[@]}"; do
         IFS='|' read -r slot vendor model <<< "$entry"
         label="$vendor ${model:-GPU}"
@@ -716,7 +773,7 @@ run_gpu_benchmark() {
 
         printf "Testing GPU %d/%d: %s\n" "$index" "${#gpus[@]}" "$label"
 
-        speed=""; used_encoder=""; note=""
+        speed=""; used_encoder=""; note=""; errors=""
         node=$(render_node_for_slot "$slot")
 
         if [ "$vendor" = "NVIDIA" ]; then
@@ -725,9 +782,12 @@ run_gpu_benchmark() {
             else
                 if [ "$has_nvenc" = "yes" ]; then
                     printf "Running GPU Benchmark with h264_nvenc...\n"
-                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -hwaccel cuda -hwaccel_output_format cuda \
-                        -c:v h264_cuvid -i "$bench_file" -c:v h264_nvenc -preset p4 -f null -)
-                    [ -n "$speed" ] && used_encoder="h264_nvenc"
+                    if ffmpeg_run "$FFMPEG_BIN" -hwaccel cuda -hwaccel_output_format cuda \
+                        -c:v h264_cuvid -i "$bench_file" -c:v h264_nvenc -preset p4 -f null -; then
+                        speed="$FFMPEG_SPEED"; used_encoder="h264_nvenc"
+                    else
+                        add_ffmpeg_error "h264_nvenc"
+                    fi
                 fi
 
                 # NVDEC + CPU encode, when the card can decode but not encode.
@@ -745,15 +805,17 @@ run_gpu_benchmark() {
                 # and the label has to make that obvious.
                 if [ -z "$speed" ]; then
                     printf "Running GPU Benchmark with NVDEC + libx264...\n"
-                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -hwaccel cuda \
+                    if ffmpeg_run "$FFMPEG_BIN" -hwaccel cuda \
                         -c:v h264_cuvid -i "$bench_file" \
-                        -c:v libx264 -preset veryfast -f null -)
-                    if [ -n "$speed" ]; then
+                        -c:v libx264 -preset veryfast -f null -; then
+                        speed="$FFMPEG_SPEED"
                         if [ "$has_nvenc" = "yes" ]; then
                             used_encoder="nvdec decode + libx264, fallback from h264_nvenc"
                         else
                             used_encoder="nvdec decode + libx264"
                         fi
+                    else
+                        add_ffmpeg_error "nvdec + libx264"
                     fi
                 fi
 
@@ -769,28 +831,34 @@ run_gpu_benchmark() {
             if [ "$vendor" = "Intel" ] && [ "$has_qsv" = "yes" ]; then
                 printf "Running GPU Benchmark with h264_qsv...\n"
                 if [ -n "$node" ]; then
-                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -init_hw_device "qsv=hw,child_device=$node" \
+                    ffmpeg_run "$FFMPEG_BIN" -init_hw_device "qsv=hw,child_device=$node" \
                         -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i "$bench_file" \
-                        -c:v h264_qsv -preset medium -global_quality 25 -f null -)
+                        -c:v h264_qsv -preset medium -global_quality 25 -f null -
                 else
-                    speed=$(ffmpeg_speed "$FFMPEG_BIN" -init_hw_device qsv=hw \
+                    ffmpeg_run "$FFMPEG_BIN" -init_hw_device qsv=hw \
                         -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv -i "$bench_file" \
-                        -c:v h264_qsv -preset medium -global_quality 25 -f null -)
+                        -c:v h264_qsv -preset medium -global_quality 25 -f null -
                 fi
-                [ -n "$speed" ] && used_encoder="h264_qsv"
+                if [ -n "$FFMPEG_SPEED" ]; then
+                    speed="$FFMPEG_SPEED"; used_encoder="h264_qsv"
+                else
+                    add_ffmpeg_error "h264_qsv"
+                fi
             fi
 
             if [ -z "$speed" ] && [ "$has_vaapi" = "yes" ] && [ -n "$node" ]; then
                 printf "Running GPU Benchmark with h264_vaapi on %s...\n" "$node"
-                speed=$(ffmpeg_speed "$FFMPEG_BIN" -init_hw_device "vaapi=va:$node" \
+                if ffmpeg_run "$FFMPEG_BIN" -init_hw_device "vaapi=va:$node" \
                     -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device va \
-                    -i "$bench_file" -c:v h264_vaapi -global_quality 25 -f null -)
-                if [ -n "$speed" ]; then
+                    -i "$bench_file" -c:v h264_vaapi -global_quality 25 -f null -; then
+                    speed="$FFMPEG_SPEED"
                     if [ "$vendor" = "Intel" ] && [ "$has_qsv" = "yes" ]; then
                         used_encoder="h264_vaapi, fallback from h264_qsv"
                     else
                         used_encoder="h264_vaapi"
                     fi
+                else
+                    add_ffmpeg_error "h264_vaapi"
                 fi
             fi
 
@@ -806,6 +874,9 @@ run_gpu_benchmark() {
         if [ -n "$speed" ]; then
             add_row "GPU Benchmark Results" "$label" "${speed} (${used_encoder})"
         else
+            # What ffmpeg said goes after any note: "no VAAPI render device"
+            # with a QSV attempt that also failed should show both reasons.
+            [ -n "$errors" ] && note="${note:+$note; }$errors"
             [ -z "$note" ] && note="benchmark failed"
             add_row "GPU Benchmark Results" "$label" "not possible (${note})"
         fi
