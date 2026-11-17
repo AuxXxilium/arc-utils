@@ -25,7 +25,7 @@
 # given: a piped or redirected run can not answer a prompt, and a prompt that
 # goes unanswered there would hang the run rather than fail it.
 
-VERSION="1.9.5"
+VERSION="1.9.6"
 
 # cpu_display_name() - trim vendor boilerplate out of a CPU model name.
 #
@@ -656,6 +656,13 @@ ensure_bench_file() {
 # rather than piped straight into awk, because in a pipeline $? belongs to awk
 # and ffmpeg's own status is lost.
 #
+# ffmpeg ends every progress update with "\r" so a terminal redraws it in
+# place, and only the final report with "\n" - also when stderr is a pipe.
+# The whole run is therefore a single line to grep, and "speed=" split on
+# that line yields the first update's speed, taken about half a second in
+# while hardware init still dominates the elapsed time. The carriage returns
+# are turned into newlines first so the last update is the one read.
+#
 # The reason is kept because a bare "benchmark failed" says nothing: it cannot
 # tell a VCRT that ships a broken iHD driver from a kernel whose GPU is wedged,
 # and a public report is all there usually is to go on.
@@ -667,7 +674,7 @@ ffmpeg_run() {
     output=$("$bin" -hide_banner "$@" 2>&1)
     status=$?
     if [ "$status" -eq 0 ]; then
-        speed=$(printf '%s' "$output" | grep "speed=" | tail -n 1 |
+        speed=$(printf '%s' "$output" | tr '\r' '\n' | grep "speed=" | tail -n 1 |
             awk -F 'speed=' '{print $2}' | awk '{print $1}')
         case "$speed" in
             [0-9]*) FFMPEG_SPEED="$speed"; return 0 ;;
